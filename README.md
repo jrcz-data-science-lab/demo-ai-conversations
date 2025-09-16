@@ -1,20 +1,37 @@
 # demo-ai-conversations
 
-# Ollama
 
+
+
+# Ollama
+- Post requests: 
+  I made a python request handler that will pick up and handle post requests made to port 8000 of the server. Whenever a request is done it will feed that request to Ollama, take the response, and send it to Piper to generate audio output.
+
+  An example of how you can build a simple post request:
+  ```bash
+  curl -X POST http://localhost:8000/generate \
+     -H "Content-Type: application/json" \
+     -d '{"prompt": "Hoe gaat het?"}'
+  ```
 - Build
-  ''' docker build -t ollama . '''
-  
+  ```bash
+  docker build -t ollama .
+  ```
 - Start
-  ''' docker run --rm -it -v $(pwd):/app -p 11434:11434 -p 8000:8000 --network mynet --name ollama ollama '''
+  ```bash
+  docker run --rm -it -v $(pwd):/app -p 11434:11434 -p 8000:8000 --network mynet --name ollama ollama
+  ```
 
 
 # Piper TTS
 
 - Build
-  ''' docker build -t tts . '''
-
+  ```bash
+  docker build -t tts .
+  ```
 - Start
-  ''' docker run --rm -itd -v $(pwd):/usr/src/app --network mynet -p 5000:5000 --name tts tts '''
+  ```bash
+  docker run --rm -itd -v $(pwd):/usr/src/app --network mynet -p 5000:5000 --name tts tts
+  ```
 
 
