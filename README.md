@@ -17,7 +17,7 @@
   ```bash
   docker build -t ollama .
   ```
-- Start
+- Run
   ```bash
   docker run --rm -it -v $(pwd):/app -p 11434:11434 -p 8000:8000 --network mynet --name ollama ollama
   ```
@@ -29,9 +29,17 @@
   ```bash
   docker build -t tts .
   ```
-- Start
+- Run
   ```bash
   docker run --rm -itd -v $(pwd):/usr/src/app --network mynet -p 5000:5000 --name tts tts
   ```
-
+# Faster-Whisper
+- Build
+  ```bash
+  docker build -t tts .
+  ```
+- Run
+  ```bash
+  docker run -it -v $(pwd):/app --device /dev/snd:/dev/snd --network mynet --name faster-whisper faster-whisper
+  ```
 
