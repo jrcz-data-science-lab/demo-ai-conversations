@@ -4,3 +4,5 @@ scipy
 numpy
 requests
 faster-whisper[vad]
+nvidia-cublas-cu12
+nvidia-cudnn-cu12==9.*
