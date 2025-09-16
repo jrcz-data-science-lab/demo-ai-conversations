@@ -6,7 +6,7 @@ from faster_whisper import WhisperModel
 import os
 import requests
 
-model = WhisperModel("tiny", compute_type="int8")
+model = WhisperModel("large", compute_type="int8")
 
 SAMPLERATE = 48000
 chunk_duration = 5.0
@@ -24,7 +24,7 @@ def transcribe_chunk(audio_np):
     print('Transcribing...')
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
         write(tmpfile.name, SAMPLERATE, audio_np)
-        segments, _ = model.transcribe(tmpfile.name, language="en", vad_filter=True)
+        segments, _ = model.transcribe(tmpfile.name, language="nl", vad_filter=True)
         os.unlink(tmpfile.name)
 
     return " ".join([seg.text for seg in segments]).strip()
@@ -35,7 +35,8 @@ def main():
         audio_chunk = record_chunk()
         text = transcribe_chunk(audio_chunk)
         if text:
-            prompt = text + "(Antwoord in het Nederlands)"
+            prompt = f"Antwoord in maximaal 2 zinnen: Prompt: {text}"
+
             requests.post(api_url, json={"prompt": prompt})
             print(f"[Transcript]: {text}")
 
