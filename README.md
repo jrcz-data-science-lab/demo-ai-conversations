@@ -31,7 +31,7 @@
   ```
 - Run
   ```bash
-  docker run --rm -itd -v $(pwd):/usr/src/app --network mynet -p 5000:5000 --name tts tts
+  docker run --rm -itd -v $(pwd):/usr/src/app --device /dev/snd:/dev/snd --network mynet -p 5000:5000 --name tts tts
   ```
 # Faster-Whisper
 - Build
