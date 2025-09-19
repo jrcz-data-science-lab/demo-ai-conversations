@@ -34,7 +34,7 @@
 # Faster-Whisper
 - Build
   ```bash
-  docker build -t tts .
+  docker build -t faster-whisper .
   ```
 - Run
   ```bash
