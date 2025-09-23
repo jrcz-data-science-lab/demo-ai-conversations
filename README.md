@@ -21,6 +21,8 @@
   ```bash
   docker run --rm -it -v $(pwd):/app -p 11434:11434 -p 8000:8000 --network mynet --name ollama ollama
   ```
+
+  Sometimes there could be a permission error for "/app/entrypoint.sh", you might have to run chmod +x app/ollama/entrypoint.sh.
 # Piper TTS
 
 - Build
