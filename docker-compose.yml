@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  ollama:
+    build:
+      context: ./app/ollama
+    container_name: ollama
+    ports:
+      - "8000:8000"
+      - "11434:11434"
+    volumes:
+      - ./app/ollama:/app
+    depends_on:
+      - tts
+    networks:
+      - ai_pipeline_net
+
+  tts:
+    build:
+      context: ./app/tts
+    container_name: tts
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./app/tts:/usr/src/app
+    devices:
+      - "/dev/snd:/dev/snd"
+    networks:
+      - ai_pipeline_net
+
+  faster_whisper:
+    build:
+      context: ./app/faster-whisper
+    container_name: faster-whisper
+    volumes:
+    - ./app/faster-whisper:/app
+    devices:
+    - "/dev/snd:/dev/snd"
+    depends_on:
+    - ollama
+    - tts
+    networks:
+    - ai_pipeline_net
+    environment:
+    - PYTHONUNBUFFERED=1
+
+
+networks:
+  ai_pipeline_net:
+    driver: bridge
