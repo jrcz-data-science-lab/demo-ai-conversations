@@ -6,13 +6,15 @@ from faster_whisper import WhisperModel
 import os
 import requests
 
+print(sd.query_devices())
+
 model = WhisperModel("large", compute_type="int8")
 
 SAMPLERATE = 48000
 chunk_duration = 5.0
 CHUNK_SAMPLES = int(SAMPLERATE * chunk_duration)
 api_url = "http://ollama:8000/generate"
-sd.default.device = (4, None)
+sd.default.device = (5, None)
 
 def record_chunk():
     print("Recording chunk...")
@@ -27,17 +29,17 @@ def transcribe_chunk(audio_np):
         segments, _ = model.transcribe(tmpfile.name, language="nl", vad_filter=True)
         os.unlink(tmpfile.name)
 
-    return " ".join([seg.text for seg in segments]).strip()
-    
+        transcript = " ".join([seg.text for seg in segments]).strip()
+        print(transcript)
+        return transcript
+
 def main():
     print("Starting transcription in chunks...")
     while True:
         audio_chunk = record_chunk()
         text = transcribe_chunk(audio_chunk)
         if text:
-            prompt = f"Antwoord in maximaal 2 zinnen: Prompt: {text}"
-
-            requests.post(api_url, json={"prompt": prompt})
+            requests.post(api_url, json={"transcript": text})
             print(f"[Transcript]: {text}")
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 #!/bin/sh
 
-MODEL="qwen3:8b"
+MODEL="gemma3:12b"
 
 pip install -r requirements.txt --break-system-packages
 
