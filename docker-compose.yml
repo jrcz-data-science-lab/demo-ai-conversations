@@ -6,7 +6,6 @@ services:
       context: ./app/ollama
     container_name: ollama
     ports:
-      - "8000:8000"
       - "11434:11434"
     volumes:
       - ./app/ollama:/app
@@ -44,6 +43,20 @@ services:
     environment:
     - PYTHONUNBUFFERED=1
 
+  manager:
+    build:
+      context: ./app/manager
+    container_name: manager
+    ports: 
+      - "8000:8000"
+    volumes:
+      - ./app/manager:/usr/src/app
+    depends_on:
+      - tts
+      - ollama
+      - faster_whisper
+    networks:
+      - ai_pipeline_net
 
 networks:
   ai_pipeline_net:
