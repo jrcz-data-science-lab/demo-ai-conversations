@@ -1,10 +1,8 @@
 #!/bin/sh
 
-MODEL="qwen3:8b"
+MODEL="qwen3:0.6b"
 
 pip install -r requirements.txt --break-system-packages
-
-python3 request.py &
 
 ollama serve &
 
