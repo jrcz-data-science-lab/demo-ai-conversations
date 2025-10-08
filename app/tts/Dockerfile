@@ -1,10 +1,11 @@
-FROM python:3
+FROM python:3.10
 
 WORKDIR /usr/src/app
 
+RUN apt update -y && apt install -y alsa-utils
+
 COPY requirements.txt ./
 RUN pip install -r requirements.txt
-RUN apt update -y && apt install -y alsa-utils
 
 COPY . .
 

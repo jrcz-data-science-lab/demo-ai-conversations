@@ -8,6 +8,27 @@ app = Flask(__name__)
 
 OLLAMA_URL = 'http://ollama:11434/api/generate'
 TTS_URL = 'http://tts:5000/speech'
+STT_URL = 'http://faster-whisper:5000/transcribe'
+GENERATE_URL = 'http://127.0.0.1:8000/generate'
+FEEDBACK_URL = 'http://127.0.0.1:8000/feedback'
+
+@app.route('/general', methods=['POST'])
+def request_handling():
+    data = request.json
+    username = data.get("username")
+    audio_in = data.get("audio")
+    feedback_request = data.get("feedback", False)
+
+    resp = requests.post(STT_URL, json={"audio": audio_in})
+    transcription_text = resp.json().get("transcript", "")
+
+
+    if not feedback_request:
+        requests.post(GENERATE_URL, json={"username": username, "transcript": transcription_text})
+    else:
+        requests.post(FEEDBACK_URL, json={"username": username})
+
+    return {"status": "ok"}
 
 @app.route('/generate', methods=['POST'])
 def generate_response():

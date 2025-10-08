@@ -13,5 +13,4 @@ def speech():
     text = data.get("text")
     with wave.open("output.wav", "wb") as wav_file:
         voice.synthesize_wav(text, wav_file)
-        os.system('aplay output.wav')
     return "ok"

@@ -1,72 +1,41 @@
-import sounddevice as sd
-import numpy as np
-from scipy.io.wavfile import write
-import tempfile
 from faster_whisper import WhisperModel
-import os
-import requests
+from flask import Flask, request, jsonify
+import base64
+import io
+import tempfile
 
-print(sd.query_devices())
+app = Flask(__name__)
 
 model = WhisperModel("tiny", compute_type="int8")
 
-SAMPLERATE = 48000
-chunk_duration = 5.0
-CHUNK_SAMPLES = int(SAMPLERATE * chunk_duration)
+@app.post('/transcribe')
+def speech():
+    data = request.get_json()
+    audio_base64 = data.get("audio")
 
-api_url = "http://manager:8000/generate"
-feedback_url = "http://manager:8000/feedback"
+    if not audio_base64:
+        return jsonify({"error": "Missing 'audio' field"}), 400
 
-sd.default.device = (4, None)
+    try:
+        # Decode base64 to bytes
+        audio_bytes = base64.b64decode(audio_base64)
+    except Exception as e:
+        return jsonify({"error": f"Invalid base64 audio: {e}"}), 400
 
-counter = 0
+    try:
+        # write audio to wav file
+        with tempfile.NamedTemporaryFile(suffix="wav", delete=True) as tmp:
+            tmp.write(audio_bytes)
+            tmp.flush
 
-USERNAME = "Dean"
+            # Transcribe using faster whisper
+            segments, info = model.transcribe(tmp.name, language="nl", vad_filter=True)
+            text = " ".join([segment.text for segment in segments])
 
-def record_chunk():
-    print("Recording chunk...")
-    audio = sd.rec(CHUNK_SAMPLES, samplerate=SAMPLERATE, channels=1, dtype='int16')
-    sd.wait()
-    return np.squeeze(audio)
+        return jsonify({"transcript": text.strip()})
 
-def transcribe_chunk(audio_np):
-    print('Transcribing...')
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
-        write(tmpfile.name, SAMPLERATE, audio_np)
-        segments, _ = model.transcribe(tmpfile.name, language="nl", vad_filter=True)
-        os.unlink(tmpfile.name)
+    except Exception as e:
+        return jsonify({"error": f"Transcription failed: {e}"}), 500
 
-        transcript = " ".join([seg.text for seg in segments]).strip()
-        print(f"[Transcript]: {transcript}")
-        return transcript
-
-def main():
-    global counter
-
-    print("Starting transcription in chunks...")
-    while True:
-        audio_chunk = record_chunk()
-        text = transcribe_chunk(audio_chunk)
-
-        if text:
-            counter += 1
-            payload = {
-                "username": USERNAME,
-                "transcript": text
-            }
-
-            if counter % 5 == 0:
-                try:
-                    requests.post(feedback_url, json=payload)
-                    print(f"[INFO] Feedback requested via /feedback (count {counter})")
-                except Exception as e:
-                    print(f"[ERROR] Failed to send to /feedback: {e}")
-            else:
-                try:
-                    requests.post(api_url, json=payload)
-                    print(f"[INFO] Transcript sent to /generate (count {counter})")
-                except Exception as e:
-                    print(f"[ERROR] Failed to send to /generate: {e}")
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
