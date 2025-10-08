@@ -24,11 +24,15 @@ def request_handling():
 
 
     if not feedback_request:
-        requests.post(GENERATE_URL, json={"username": username, "transcript": transcription_text})
+        generate_resp = requests.post(GENERATE_URL, json={
+            "username": username,
+            "transcript": transcription_text
+        })
+        audio_b64 = generate_resp.json().get("audio")
+        return jsonify({"audio": audio_b64})
     else:
         requests.post(FEEDBACK_URL, json={"username": username})
-
-    return {"status": "ok"}
+        return {"status": "ok"}
 
 @app.route('/generate', methods=['POST'])
 def generate_response():
@@ -61,9 +65,13 @@ Hieronder volgt de gesprekshistorie:
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
-            requests.post(TTS_URL, json={"text": response_text})
+            tts_resp = requests.post(TTS_URL, json={"text": response_text})
+            audio_b64 = tts_resp.json().get("audio")
 
-        return jsonify({"response": response_text})
+        return jsonify({
+        "response": response_text,
+        "audio": audio_b64
+        })
 
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"An error occurred: {e}"}), 500
