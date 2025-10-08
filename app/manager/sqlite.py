@@ -5,14 +5,12 @@ DB_FILE = "chat.db"
 def init_db():
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        # Users table
         c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL
-        )""")
-        
-        # Messages table
+        )
+        """)
         c.execute("""
         CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -21,5 +19,6 @@ def init_db():
             text TEXT NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(user_id) REFERENCES users(id)
-        )""")
+        )
+        """)
         conn.commit()

@@ -17,7 +17,7 @@ def append_to_history(username, speaker, text):
     user_id = get_or_create_user(username)
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute("INSERT INTO messages (user_id, speaker, text) VALUES (?, ?, ?)", 
+        c.execute("INSERT INTO messages (user_id, speaker, text) VALUES (?, ?, ?)",
                   (user_id, speaker, text))
         conn.commit()
 
