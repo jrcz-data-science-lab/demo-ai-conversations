@@ -31,8 +31,11 @@ def request_handling():
         audio_b64 = generate_resp.json().get("audio")
         return jsonify({"audio": audio_b64})
     else:
-        requests.post(FEEDBACK_URL, json={"username": username})
-        return {"status": "ok"}
+        feedback_resp = requests.post(FEEDBACK_URL, json={
+            "username": username
+        })
+        audio_b64 = feedback_resp.json().get("audio")
+        return jsonify({"audio": audio_b64})
 
 @app.route('/generate', methods=['POST'])
 def generate_response():
@@ -107,9 +110,13 @@ Gespreksgeschiedenis:
         feedback_text = ollama_response.json().get("response", "")
 
         if feedback_text:
-            requests.post(TTS_URL, json={"text": feedback_text})
+            tts_resp = requests.post(TTS_URL, json={"text": feedback_text})
+            audio_b64 = tts_resp.json().get("audio")
 
-        return jsonify({"feedback": feedback_text})
+        return jsonify({
+        "response": feedback_text,
+        "audio": audio_b64
+        })
 
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"An error occurred: {e}"}), 500
