@@ -6,7 +6,8 @@ import tempfile
 
 app = Flask(__name__)
 
-model = WhisperModel("tiny", compute_type="int8")
+# Change Model Type
+model = WhisperModel("large-v3-turbo", compute_type="int8")
 
 @app.post('/transcribe')
 def speech():
@@ -26,7 +27,7 @@ def speech():
         # write audio to wav file
         with tempfile.NamedTemporaryFile(suffix="wav", delete=True) as tmp:
             tmp.write(audio_bytes)
-            tmp.flush
+            tmp.flush()
 
             # Transcribe using faster whisper
             segments, info = model.transcribe(tmp.name, language="nl", vad_filter=True)
@@ -35,7 +36,8 @@ def speech():
         return jsonify({"transcript": text.strip()})
 
     except Exception as e:
-        return jsonify({"error": f"Transcription failed: {e}"}), 500
+        print({"error": f"Transcription failed: {e} Details: {str(e)}"})
+        return jsonify({"error": f"Transcription failed: {e} Details: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)

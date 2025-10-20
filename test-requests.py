@@ -11,7 +11,6 @@ SAMPLERATE = 48000
 DURATION = 5
 CHANNELS = 1
 
-
 def record_audio(duration=DURATION, samplerate=SAMPLERATE, channels=CHANNELS):
     print(f"Recording {duration} seconds of audio...")
     audio = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=channels, dtype='int16')

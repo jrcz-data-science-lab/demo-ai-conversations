@@ -22,7 +22,6 @@ def request_handling():
     resp = requests.post(STT_URL, json={"audio": audio_in})
     transcription_text = resp.json().get("transcript", "")
 
-
     if not feedback_request:
         generate_resp = requests.post(GENERATE_URL, json={
             "username": username,
@@ -30,7 +29,7 @@ def request_handling():
         })
         audio_b64 = generate_resp.json().get("audio")
         return jsonify({"audio": audio_b64})
-    else:
+    else:  
         feedback_resp = requests.post(FEEDBACK_URL, json={
             "username": username
         })
@@ -61,7 +60,7 @@ Hieronder volgt de gesprekshistorie:
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt, "model": "qwen3:0.6b", "stream": False, "think": False}
+            json={"prompt": prompt, "model": "phi4:latest", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
@@ -104,7 +103,7 @@ Gespreksgeschiedenis:
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt, "model": "qwen3:0.6b", "stream": False, "think": False}
+            json={"prompt": prompt, "model": "qwen3:32b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         feedback_text = ollama_response.json().get("response", "")

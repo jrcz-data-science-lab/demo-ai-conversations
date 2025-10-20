@@ -31,8 +31,6 @@ services:
     container_name: faster-whisper
     volumes:
       - ./app/faster-whisper:/app
-    devices:
-      - "/dev/snd:/dev/snd"
     depends_on:
       - ollama
       - tts
@@ -40,6 +38,7 @@ services:
       - ai_pipeline_net
     environment:
       - PYTHONUNBUFFERED=1
+    runtime: nvidia
 
   manager:
     build:
