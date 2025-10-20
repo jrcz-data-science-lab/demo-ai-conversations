@@ -11,6 +11,7 @@ services:
       - ./app/ollama:/app
     networks:
       - ai_pipeline_net
+    runtime: nvidia
 
   tts:
     build:
