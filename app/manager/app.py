@@ -18,6 +18,12 @@ with open("prompts/conversation2.txt", "r", encoding="utf-8") as f:
 with open("prompts/feedback2.txt", "r", encoding="utf-8") as f:
     FEEDBACK_2 = f.read()
 
+with open("prompts/conversation3.txt", "r", encoding="utf-8") as f:
+    PROMPT_3 = f.read()
+
+with open("prompts/feedback3.txt", "r", encoding="utf-8") as f:
+    FEEDBACK_3 = f.read()
+
 OLLAMA_URL = 'http://ollama:11434/api/generate'
 TTS_URL = 'http://tts:5000/speech'
 STT_URL = 'http://faster-whisper:5000/transcribe'
