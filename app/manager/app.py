@@ -6,6 +6,12 @@ from user_management import ensure_user
 
 app = Flask(__name__)
 
+with open("conversation1.txt", "r", encoding="utf-8") as f:
+    PROMPT_1 = f.read()
+
+with open("feedback1.txt", "r", encoding="utf-8") as f:
+    FEEDBACK_1 = f.read()
+
 OLLAMA_URL = 'http://ollama:11434/api/generate'
 TTS_URL = 'http://tts:5000/speech'
 STT_URL = 'http://faster-whisper:5000/transcribe'
@@ -49,18 +55,13 @@ def generate_response():
     append_to_history(username, "Student", transcript)
     convo = read_history(username)
 
-    prompt = f"""
-/nothink
-Je speelt een AI-avatar in een game voor een HBO verpleegkunde opleiding.
-De student voert een diagnostisch gesprek.
-Hieronder volgt de gesprekshistorie:
-{convo}
-"""
+    prompt_text = PROMPT_1.format(convo=convo)
+
 
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt, "model": "phi4:latest", "stream": False, "think": False}
+            json={"prompt": prompt_text, "model": "mistral-small3.2:24b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
@@ -90,20 +91,12 @@ def generate_feedback():
     ensure_user(username)
     convo = read_history(username)
 
-    prompt = f"""
-/nothink
-Je bent een docent of beoordelaar in een HBO verpleegkunde opleiding.
-De student heeft net een diagnostisch gesprek gevoerd met een AI-avatar.
-Geef feedback in maximaal 5 zinnen, vriendelijk en constructief.
-
-Gespreksgeschiedenis:
-{convo}
-"""
+    prompt_text = FEEDBACK_1.format(convo=convo)
 
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt, "model": "qwen3:32b", "stream": False, "think": False}
+            json={"prompt": prompt_text, "model": "qwen3:32b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         feedback_text = ollama_response.json().get("response", "")

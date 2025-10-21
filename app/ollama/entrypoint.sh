@@ -1,6 +1,6 @@
 #!/bin/sh
 
-CONVERSATION_MODEL="phi4:latest"
+CONVERSATION_MODEL="mistral-small3.2:24b"
 FEEDBACK_MODEL="qwen3:32b"
 
 pip install -r requirements.txt --break-system-packages
