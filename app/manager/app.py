@@ -6,10 +6,10 @@ from user_management import ensure_user
 
 app = Flask(__name__)
 
-with open("conversation1.txt", "r", encoding="utf-8") as f:
+with open("prompts/conversation1.txt", "r", encoding="utf-8") as f:
     PROMPT_1 = f.read()
 
-with open("feedback1.txt", "r", encoding="utf-8") as f:
+with open("prompts/feedback1.txt", "r", encoding="utf-8") as f:
     FEEDBACK_1 = f.read()
 
 OLLAMA_URL = 'http://ollama:11434/api/generate'
@@ -56,7 +56,7 @@ def generate_response():
     convo = read_history(username)
 
     prompt_text = PROMPT_1.format(convo=convo)
-
+    print( prompt_text)
 
     try:
         ollama_response = requests.post(
