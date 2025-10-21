@@ -55,8 +55,14 @@ def base64_to_audio(audio_b64):
     return data, samplerate
 
 
-def send_audio(username, audio_b64):
-    data = {"username": username, "audio": audio_b64, "feedback": False}
+def send_audio(username, audio_b64, scenario):  # ✅ 3 arguments
+    data = {
+        "username": username,
+        "audio": audio_b64,
+        "feedback": False,
+        "scenario": scenario
+    }
+
 
     try:
         response = requests.post(SERVER_URL, json=data, timeout=60)
@@ -95,6 +101,11 @@ def main():
         print("Username is required!")
         return
 
+    scenario = input("Enter scenario number (e.g. 1, 2, 3...): ").strip()
+    if not scenario.isdigit():
+        print("Scenario must be a number.")
+        return
+
     print("\n=== Push-to-Talk Online Mode ===")
     print("Press ENTER to start recording, ENTER again to stop.")
     print("Audio will be sent to the server and the reply will play.")
@@ -119,7 +130,7 @@ def main():
             audio_b64 = audio_to_base64(audio_np)
 
             print("Sending audio to server...")
-            audio_b64_resp = send_audio(username, audio_b64)
+            audio_b64_resp = send_audio(username, audio_b64, scenario)
 
             if audio_b64_resp:
                 print("Playing server response...")
@@ -134,6 +145,7 @@ def main():
     except KeyboardInterrupt:
         print("\n Exiting gracefully. Goodbye!")
         sys.exit(0)
+
 
 
 if __name__ == "__main__":
