@@ -6,16 +6,16 @@ from user_management import ensure_user
 
 app = Flask(__name__)
 
-with open("conversation1.txt", "r", encoding="utf-8") as f:
+with open("prompts/conversation1.txt", "r", encoding="utf-8") as f:
     PROMPT_1 = f.read()
 
-with open("feedback1.txt", "r", encoding="utf-8") as f:
+with open("prompts/feedback1.txt", "r", encoding="utf-8") as f:
     FEEDBACK_1 = f.read()
 
-with open("conversation2.txt", "r", encoding="utf-8") as f:
+with open("prompts/conversation2.txt", "r", encoding="utf-8") as f:
     PROMPT_2 = f.read()
 
-with open("feedback2.txt", "r", encoding="utf-8") as f:
+with open("prompts/feedback2.txt", "r", encoding="utf-8") as f:
     FEEDBACK_2 = f.read()
 
 OLLAMA_URL = 'http://ollama:11434/api/generate'
