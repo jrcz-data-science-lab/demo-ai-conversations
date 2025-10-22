@@ -66,6 +66,7 @@ def generate_response():
     username = data.get("username")
     transcript = data.get("transcript")
     scenario = data.get("scenario")
+    voice = "nl_NL-ronnie-medium"
 
     if not username or not transcript or not scenario:
         return jsonify({"error": "Missing username, transcript, or scenario"}), 400
@@ -93,7 +94,7 @@ def generate_response():
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
-            tts_resp = requests.post(TTS_URL, json={"text": response_text})
+            tts_resp = requests.post(TTS_URL, json={"text": response_text, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
             return jsonify({"response": response_text, "audio": audio_b64})
 

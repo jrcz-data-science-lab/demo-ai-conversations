@@ -6,12 +6,25 @@ import base64
 
 app = Flask(__name__)
 
-voice = PiperVoice.load("./nl_NL-ronnie-medium.onnx")
+# Cache loaded voices in a dictionary
+loaded_voices = {}
+
+def load_voice(voice_name):
+    """Load the voice model if not already loaded"""
+    if voice_name not in loaded_voices:
+        voice_path = f"./voices/{voice_name}.onnx"
+        loaded_voices[voice_name] = PiperVoice.load(voice_path)
+    return loaded_voices[voice_name]
 
 @app.post('/speech')
 def speech():
     data = request.get_json()
     text = data.get("text")
+    voice_name = data.get("voice", "nl_NL-pim-medium")
+
+    # Load the requested voice (if not already loaded)
+    voice = load_voice(voice_name)
+    # voice = PiperVoice.load(f"./voices/nl_NL-ronnie-medium.onnx")
 
     # Write audio to memory buffer instead of disk
     buffer = io.BytesIO()
