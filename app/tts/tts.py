@@ -24,8 +24,7 @@ def speech():
 
     # Load the requested voice (if not already loaded)
     voice = load_voice(voice_name)
-    # voice = PiperVoice.load(f"./voices/nl_NL-ronnie-medium.onnx")
-
+    
     # Write audio to memory buffer instead of disk
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as wav_file:

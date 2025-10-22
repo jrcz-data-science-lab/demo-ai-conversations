@@ -31,6 +31,7 @@ def request_handling():
     audio_in = data.get("audio")
     scenario = data.get("scenario")
     feedback_request = data.get("feedback", False)
+    voice_model = "nl_NL-pim-medium"
 
     if not username or not audio_in or not scenario:
         return jsonify({"error": "Missing username, audio, or scenario"}), 400
@@ -47,14 +48,16 @@ def request_handling():
         generate_resp = requests.post(GENERATE_URL, json={
             "username": username,
             "transcript": transcription_text,
-            "scenario": scenario
+            "scenario": scenario,
+            "voice": voice_model
         })
         audio_b64 = generate_resp.json().get("audio")
         return jsonify({"audio": audio_b64})
     else:
         feedback_resp = requests.post(FEEDBACK_URL, json={
             "username": username,
-            "scenario": scenario
+            "scenario": scenario,
+            "voice": voice_model
         })
         audio_b64 = feedback_resp.json().get("audio")
         return jsonify({"audio": audio_b64})
@@ -66,7 +69,7 @@ def generate_response():
     username = data.get("username")
     transcript = data.get("transcript")
     scenario = data.get("scenario")
-    voice = "nl_NL-ronnie-medium"
+    voice = data.get("voice")
 
     if not username or not transcript or not scenario:
         return jsonify({"error": "Missing username, transcript, or scenario"}), 400
@@ -91,6 +94,7 @@ def generate_response():
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
+        print(response_text)
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
