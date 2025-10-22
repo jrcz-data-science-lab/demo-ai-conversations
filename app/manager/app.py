@@ -3,26 +3,9 @@ import requests
 from db_utils import append_to_history, read_history
 from sqlite import init_db
 from user_management import ensure_user
+import os
 
 app = Flask(__name__)
-
-with open("prompts/conversation1.txt", "r", encoding="utf-8") as f:
-    PROMPT_1 = f.read()
-
-with open("prompts/feedback1.txt", "r", encoding="utf-8") as f:
-    FEEDBACK_1 = f.read()
-
-with open("prompts/conversation2.txt", "r", encoding="utf-8") as f:
-    PROMPT_2 = f.read()
-
-with open("prompts/feedback2.txt", "r", encoding="utf-8") as f:
-    FEEDBACK_2 = f.read()
-
-with open("prompts/conversation3.txt", "r", encoding="utf-8") as f:
-    PROMPT_3 = f.read()
-
-with open("prompts/feedback3.txt", "r", encoding="utf-8") as f:
-    FEEDBACK_3 = f.read()
 
 OLLAMA_URL = 'http://ollama:11434/api/generate'
 TTS_URL = 'http://tts:5000/speech'
@@ -30,6 +13,16 @@ STT_URL = 'http://faster-whisper:5000/transcribe'
 GENERATE_URL = 'http://127.0.0.1:8000/generate'
 FEEDBACK_URL = 'http://127.0.0.1:8000/feedback'
 
+def load_prompts(prompts_directory="prompts"):
+    prompts = {}
+    for filename in os.listdir(prompts_directory):
+        if filename.endswith(".txt"):
+            scenario_name = filename.split(".")[0]
+            with open(os.path.join(prompts_directory, filename), "r", encoding="utf-8") as f:
+                prompts[scenario_name] = f.read()
+    return prompts
+
+prompts = load_prompts() 
 
 @app.route('/general', methods=['POST'])
 def request_handling():
@@ -81,12 +74,14 @@ def generate_response():
     append_to_history(username, "Student", transcript)
     convo = read_history(username)
 
-    # Dynamically load prompt
-    prompt_template = globals().get(f"PROMPT_{scenario}")
-    if not prompt_template:
+    # Dynamically load the prompt from the dictionary
+    prompt_text = prompts.get(f"conversation{scenario}", None)
+    if not prompt_text:
         return jsonify({"error": f"No prompt found for scenario {scenario}"}), 400
 
-    prompt_text = prompt_template.format(convo=convo)
+    # Format the prompt with the conversation history
+    prompt_text = prompt_text.format(convo=convo)
+    print(prompt_text)
 
     try:
         ollama_response = requests.post(
@@ -107,7 +102,6 @@ def generate_response():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Ollama error: {e}"}), 500
 
-
 @app.route('/feedback', methods=['POST'])
 def generate_feedback():
     data = request.json
@@ -120,12 +114,13 @@ def generate_feedback():
     ensure_user(username)
     convo = read_history(username)
 
-    # Dynamically load feedback prompt
-    feedback_template = globals().get(f"FEEDBACK_{scenario}")
-    if not feedback_template:
+    # Dynamically load the feedback prompt from the dictionary
+    feedback_text = prompts.get(f"feedback{scenario}", None)
+    if not feedback_text:
         return jsonify({"error": f"No feedback prompt for scenario {scenario}"}), 400
 
-    prompt_text = feedback_template.format(convo=convo)
+    # Format the prompt with the conversation history
+    feedback_text = feedback_text.format(convo=convo)
 
     try:
         ollama_response = requests.post(
@@ -144,7 +139,6 @@ def generate_feedback():
 
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Ollama error: {e}"}), 500
-
 
 if __name__ == '__main__':
     init_db()
