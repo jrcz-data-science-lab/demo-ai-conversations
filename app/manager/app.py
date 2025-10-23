@@ -31,7 +31,15 @@ def request_handling():
     audio_in = data.get("audio")
     scenario = data.get("scenario")
     feedback_request = data.get("feedback", False)
-    voice_model = "nl_NL-pim-medium"
+
+    if scenario == '1':
+        voice_model = "nl_NL-pim-medium"
+    elif scenario == '2':
+        voice_model = "nl_NL-ronnie-medium"
+    elif scenario == '3':
+        voice_model = "nl_BE-nathalie-medium"
+    else:
+        voice_model = "nl_NL-ronnie-medium"
 
     if not username or not audio_in or not scenario:
         return jsonify({"error": "Missing username, audio, or scenario"}), 400
@@ -40,10 +48,9 @@ def request_handling():
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
     transcription_text = stt_resp.json().get("transcript", "")
 
-    if not transcription_text:
-        return jsonify({"error": "Transcription failed"}), 500
+    # if not transcription_text:
+    #     return jsonify({"error": "Transcription failed"}), 500
 
-    # Route to generate or feedback
     if not feedback_request:
         generate_resp = requests.post(GENERATE_URL, json={
             "username": username,
@@ -130,7 +137,7 @@ def generate_feedback():
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt_text, "model": "qwen3:32b", "stream": False, "think": False}
+            json={"prompt": feedback_text, "model": "qwen3:32b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         feedback_text = ollama_response.json().get("response", "")

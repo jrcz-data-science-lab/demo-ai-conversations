@@ -20,7 +20,7 @@ def load_voice(voice_name):
 def speech():
     data = request.get_json()
     text = data.get("text")
-    voice_name = data.get("voice", "nl_NL-pim-medium")
+    voice_name = data.get("voice", "nl_NL-ronnie-medium")
 
     # Load the requested voice (if not already loaded)
     voice = load_voice(voice_name)
