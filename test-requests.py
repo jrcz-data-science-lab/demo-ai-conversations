@@ -7,6 +7,7 @@ import requests
 import time
 import sys
 import threading
+import os
 
 SERVER_URL = "http://145.19.54.110:8000/general"
 SAMPLERATE = 48000
@@ -34,8 +35,11 @@ def record_audio_live():
 
 
 def play_audio(audio_np, samplerate=SAMPLERATE):
-    sd.play(audio_np, samplerate=samplerate)
-    sd.wait()
+    try:
+        sd.play(audio_np, samplerate=samplerate)
+        sd.wait()
+    except Exception as e:
+        print("Playback error:", e)
 
 
 def audio_to_base64(audio_np, samplerate=SAMPLERATE):
@@ -43,6 +47,7 @@ def audio_to_base64(audio_np, samplerate=SAMPLERATE):
         write(tmpfile.name, samplerate, audio_np)
         with open(tmpfile.name, "rb") as f:
             audio_bytes = f.read()
+    os.remove(tmpfile.name)
     return base64.b64encode(audio_bytes).decode("utf-8")
 
 
@@ -52,17 +57,21 @@ def base64_to_audio(audio_b64):
         tmpfile.write(audio_bytes)
         tmpfile.flush()
         samplerate, data = read(tmpfile.name)
+    os.remove(tmpfile.name)
     return data, samplerate
 
 
-def send_audio(username, audio_b64, scenario):  # ✅ 3 arguments
+def generate_silence(duration=1.0, samplerate=SAMPLERATE):
+    return np.zeros((int(duration * samplerate), 1), dtype=np.int16)
+
+
+def send_audio(username, audio_b64, scenario, feedback=False):
     data = {
         "username": username,
         "audio": audio_b64,
-        "feedback": False,
+        "feedback": feedback,
         "scenario": scenario
     }
-
 
     try:
         response = requests.post(SERVER_URL, json=data, timeout=60)
@@ -91,7 +100,6 @@ def send_audio(username, audio_b64, scenario):  # ✅ 3 arguments
     except Exception as e:
         print("Error sending request:", e)
         return None
-
 
 def main():
     global is_recording, recording
@@ -130,7 +138,7 @@ def main():
             audio_b64 = audio_to_base64(audio_np)
 
             print("Sending audio to server...")
-            audio_b64_resp = send_audio(username, audio_b64, scenario)
+            audio_b64_resp = send_audio(username, audio_b64, scenario, feedback=False)
 
             if audio_b64_resp:
                 print("Playing server response...")
@@ -143,9 +151,25 @@ def main():
             time.sleep(0.5)
 
     except KeyboardInterrupt:
-        print("\n Exiting gracefully. Goodbye!")
-        sys.exit(0)
+        print("\nConversation ended. Requesting feedback summary from server...")
 
+        silent_audio = generate_silence()
+        silent_b64 = audio_to_base64(silent_audio)
+
+        final_feedback = send_audio(username, silent_b64, scenario, feedback=True)
+
+        if final_feedback:
+            print("=== Feedback Summary ===")
+            try:
+                feedback_audio, sr = base64_to_audio(final_feedback)
+                play_audio(feedback_audio, sr)
+            except Exception:
+                print(final_feedback)
+        else:
+            print("No feedback received from server.")
+
+        print("\nGoodbye!")
+        sys.exit(0)
 
 
 if __name__ == "__main__":
