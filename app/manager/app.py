@@ -38,6 +38,8 @@ def request_handling():
         voice_model = "nl_NL-ronnie-medium"
     elif scenario == '3':
         voice_model = "nl_BE-nathalie-medium"
+    elif scenario == '4':
+        voice_model = "en_US-kristin-medium"
     else:
         voice_model = "nl_NL-ronnie-medium"
 
