@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 import requests
-from db_utils import append_to_history, read_history
+from db_utils import append_to_history, read_history, clear_history
 from sqlite import init_db
 from user_management import ensure_user
 import os
@@ -147,6 +147,9 @@ def generate_feedback():
         if feedback_text:
             tts_resp = requests.post(TTS_URL, json={"text": feedback_text})
             audio_b64 = tts_resp.json().get("audio")
+
+            clear_history(username)
+
             return jsonify({"response": feedback_text, "audio": audio_b64})
 
         return jsonify({"error": "Empty feedback response"}), 500
