@@ -1,2 +1,4 @@
 Flask
 requests
+nvidia-cublas-cu13
+nvidia-cudnn-cu13==9.*

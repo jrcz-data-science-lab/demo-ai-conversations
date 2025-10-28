@@ -1,46 +1,43 @@
-import sounddevice as sd
-import numpy as np
-from scipy.io.wavfile import write
-import tempfile
 from faster_whisper import WhisperModel
-import os
-import requests
+from flask import Flask, request, jsonify
+import base64
+import io
+import tempfile
 
-print(sd.query_devices())
+app = Flask(__name__)
 
-model = WhisperModel("large", compute_type="int8")
+# Change Model Type
+model = WhisperModel("large-v3-turbo", compute_type="int8")
 
-SAMPLERATE = 48000
-chunk_duration = 5.0
-CHUNK_SAMPLES = int(SAMPLERATE * chunk_duration)
-api_url = "http://ollama:8000/generate"
-sd.default.device = (5, None)
+@app.post('/transcribe')
+def speech():
+    data = request.get_json()
+    audio_base64 = data.get("audio")
 
-def record_chunk():
-    print("Recording chunk...")
-    audio = sd.rec(CHUNK_SAMPLES, samplerate=SAMPLERATE, channels=1, dtype='int16')
-    sd.wait()
-    return np.squeeze(audio)
+    if not audio_base64:
+        return jsonify({"error": "Missing 'audio' field"}), 400
 
-def transcribe_chunk(audio_np):
-    print('Transcribing...')
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
-        write(tmpfile.name, SAMPLERATE, audio_np)
-        segments, _ = model.transcribe(tmpfile.name, language="nl", vad_filter=True)
-        os.unlink(tmpfile.name)
+    try:
+        # Decode base64 to bytes
+        audio_bytes = base64.b64decode(audio_base64)
+    except Exception as e:
+        return jsonify({"error": f"Invalid base64 audio: {e}"}), 400
 
-        transcript = " ".join([seg.text for seg in segments]).strip()
-        print(transcript)
-        return transcript
+    try:
+        # write audio to wav file
+        with tempfile.NamedTemporaryFile(suffix="wav", delete=True) as tmp:
+            tmp.write(audio_bytes)
+            tmp.flush()
 
-def main():
-    print("Starting transcription in chunks...")
-    while True:
-        audio_chunk = record_chunk()
-        text = transcribe_chunk(audio_chunk)
-        if text:
-            requests.post(api_url, json={"transcript": text})
-            print(f"[Transcript]: {text}")
+            # Transcribe using faster whisper
+            segments, info = model.transcribe(tmp.name, language="nl", vad_filter=True)
+            text = " ".join([segment.text for segment in segments])
 
-if __name__ == "__main__":
-    main()
+        return jsonify({"transcript": text.strip()})
+
+    except Exception as e:
+        print({"error": f"Transcription failed: {e} Details: {str(e)}"})
+        return jsonify({"error": f"Transcription failed: {e} Details: {str(e)}"}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)

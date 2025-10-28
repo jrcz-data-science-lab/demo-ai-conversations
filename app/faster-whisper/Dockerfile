@@ -1,4 +1,4 @@
-#FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04
+# FROM nvidia/cuda:13.0.1-cudnn-runtime-ubuntu24.04
 FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
 WORKDIR /app
@@ -30,3 +30,4 @@ RUN pip install --upgrade pip && \
 COPY . .
 
 CMD ["python", "faster-whisper.py"]
+

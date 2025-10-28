@@ -4,21 +4,12 @@ services:
       context: ./app/ollama
     container_name: ollama
     ports:
-      - "8000:8000"
       - "11434:11434"
     volumes:
       - ./app/ollama:/app
-    depends_on:
-      - tts
     networks:
       - ai_pipeline_net
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]  # Enable GPU for this container
+    runtime: nvidia
 
   tts:
     build:
@@ -38,23 +29,32 @@ services:
       context: ./app/faster-whisper
     container_name: faster-whisper
     volumes:
-    - ./app/faster-whisper:/app
-    devices:
-    - "/dev/snd:/dev/snd"
+      - ./app/faster-whisper:/app
     depends_on:
-    - ollama
-    - tts
+      - ollama
+      - tts
     networks:
-    - ai_pipeline_net
+      - ai_pipeline_net
     environment:
-    - PYTHONUNBUFFERED=1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]  # Enable GPU for this container
+      - PYTHONUNBUFFERED=1
+    runtime: nvidia
+
+  manager:
+    build:
+      context: ./app/manager
+    container_name: manager
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app/manager:/usr/src/app
+    depends_on:
+      - ollama
+      - tts
+      - faster_whisper
+    networks:
+      - ai_pipeline_net
+    environment:
+      - PYTHONUNBUFFERED=1
 
 networks:
   ai_pipeline_net:

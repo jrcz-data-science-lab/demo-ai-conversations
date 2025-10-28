@@ -1,10 +1,9 @@
 #!/bin/sh
 
-MODEL="gemma3:12b"
+CONVERSATION_MODEL="mistral-small3.2:24b"
+FEEDBACK_MODEL="qwen3:32b"
 
 pip install -r requirements.txt --break-system-packages
-
-python3 request.py &
 
 ollama serve &
 
@@ -13,11 +12,18 @@ until ollama list >/dev/null 2>&1; do
   sleep 1
 done
 
-if ! ollama list | grep -q "$MODEL"; then
-  echo "Model '$MODEL' not found locally. Pulling..."
-  ollama pull "$MODEL"
+if ! ollama list | grep -q "$CONVERSATION_MODEL"; then
+  echo "Model '$CONVERSATION_MODEL' not found locally. Pulling..."
+  ollama pull "$CONVERSATION_MODEL"
 else
-  echo "Model '$MODEL' already present."
+  echo "Model '$CONVERSATION_MODEL' already present."
+fi
+
+if ! ollama list | grep -q "$FEEDBACK_MODEL"; then
+  echo "Model '$FEEDBACK_MODEL' not found locally. Pulling..."
+  ollama pull "$FEEDBACK_MODEL"
+else
+  echo "Model '$FEEDBACK_MODEL' already present."
 fi
 
 wait
