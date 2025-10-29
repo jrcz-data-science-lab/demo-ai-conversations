@@ -25,6 +25,7 @@ services:
       - "/dev/snd:/dev/snd"
     networks:
       - ai_pipeline_net
+    runtime: nvidia
 
   faster_whisper:
     build:

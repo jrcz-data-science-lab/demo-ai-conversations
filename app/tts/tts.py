@@ -1,40 +1,60 @@
 from flask import Flask, request, jsonify
-import wave
-from piper import PiperVoice
+import torch
+from TTS.api import TTS
 import io
 import base64
+import tempfile
+import os
+import sys
+from io import StringIO
+
+def simulate_input(input_text):
+    sys.stdin = StringIO(input_text)
+
+simulate_input("y\n")
 
 app = Flask(__name__)
 
-# Cache loaded voices in a dictionary
-loaded_voices = {}
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
-def load_voice(voice_name):
-    """Load the voice model if not already loaded"""
-    if voice_name not in loaded_voices:
-        voice_path = f"./voices/{voice_name}.onnx"
-        loaded_voices[voice_name] = PiperVoice.load(voice_path)
-    return loaded_voices[voice_name]
-
+# Init TTS
+tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+speaker = "Wulf Carlevaro"
+# Kumar Dahl
+# Luis Moray
+# Wulf Carlevaro
+# Filip Traverse
+# Damien Black
+ 
 @app.post('/speech')
 def speech():
     data = request.get_json()
     text = data.get("text")
-    voice_name = data.get("voice", "nl_NL-ronnie-medium")
+    if not text:
+        return jsonify({"error": "Missing text"}), 400
 
-    # Load the requested voice (if not already loaded)
-    voice = load_voice(voice_name)
-    
-    # Write audio to memory buffer instead of disk
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wav_file:
-        wav_file.setnchannels(1)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(22050)
-        voice.synthesize_wav(text, wav_file)
+    # Create a temporary file for the output
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
+        tmp_path = tmpfile.name
 
-    buffer.seek(0)
-    audio_bytes = buffer.read()
-    audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+    try:
+        # Generate speech and save to the temporary file
+        tts.tts_to_file(text=text, speaker=speaker, language="nl", file_path=tmp_path)
 
-    return jsonify({"status": "ok", "audio": audio_b64})
+        # Read the audio back into memory
+        with open(tmp_path, "rb") as f:
+            audio_bytes = f.read()
+
+        # Encode to base64
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+        return jsonify({"status": "ok", "audio": audio_b64})
+
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
+
