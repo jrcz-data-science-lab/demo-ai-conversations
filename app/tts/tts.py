@@ -8,6 +8,7 @@ import os
 import sys
 from io import StringIO
 
+# Approve Coqui's auto TOS in the container
 def simulate_input(input_text):
     sys.stdin = StringIO(input_text)
 
@@ -19,17 +20,12 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 
 # Init TTS
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
-speaker = "Wulf Carlevaro"
-# Kumar Dahl
-# Luis Moray
-# Wulf Carlevaro
-# Filip Traverse
-# Damien Black
  
 @app.post('/speech')
 def speech():
     data = request.get_json()
     text = data.get("text")
+    speaker = data.get("voice")
     if not text:
         return jsonify({"error": "Missing text"}), 400
 

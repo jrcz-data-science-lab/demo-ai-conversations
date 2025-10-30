@@ -33,15 +33,15 @@ def request_handling():
     feedback_request = data.get("feedback", False)
 
     if scenario == '1':
-        voice_model = "nl_NL-pim-medium"
+        voice_model = "Kumar Dahl"
     elif scenario == '2':
-        voice_model = "nl_NL-ronnie-medium"
+        voice_model = "Luis Moray"
     elif scenario == '3':
-        voice_model = "nl_BE-nathalie-medium"
+        voice_model = "Wulf Carlevaro"
     elif scenario == '4':
-        voice_model = "en_US-kristin-medium"
+        voice_model = "Filip Traverse"
     else:
-        voice_model = "nl_NL-ronnie-medium"
+        voice_model = "Damien Black"
 
     if not username or not audio_in or not scenario:
         return jsonify({"error": "Missing username, audio, or scenario"}), 400
@@ -49,9 +49,6 @@ def request_handling():
     # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
     transcription_text = stt_resp.json().get("transcript", "")
-
-    # if not transcription_text:
-    #     return jsonify({"error": "Transcription failed"}), 500
 
     if not feedback_request:
         generate_resp = requests.post(GENERATE_URL, json={
@@ -121,6 +118,7 @@ def generate_feedback():
     data = request.json
     username = data.get("username")
     scenario = data.get("scenario")
+    voice = data.get("voice")
 
     if not username or not scenario:
         return jsonify({"error": "Missing username or scenario"}), 400
@@ -145,7 +143,7 @@ def generate_feedback():
         feedback_text = ollama_response.json().get("response", "")
 
         if feedback_text:
-            tts_resp = requests.post(TTS_URL, json={"text": feedback_text})
+            tts_resp = requests.post(TTS_URL, json={"text": feedback_text, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
 
             clear_history(username)
