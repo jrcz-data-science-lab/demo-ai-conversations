@@ -1,2 +1,6 @@
 requests
 Flask
+flask-socketio
+python-socketio
+websocket-client
+numpy

@@ -1,57 +1,32 @@
 import sounddevice as sd
 import numpy as np
-from scipy.io.wavfile import write, read
+from scipy.io.wavfile import read
 import base64
 import tempfile
-import requests
+import socketio
 import time
 import sys
 import threading
 import os
 
-SERVER_URL = "http://145.19.54.110:8000/general"
-SAMPLERATE = 48000
+SERVER_URL = "http://localhost:8000"
+SAMPLERATE = 16000  # Whisper-live requires 16kHz
 CHANNELS = 1
+CHUNK_SIZE = 4096  # Audio chunk size for streaming
 
-recording = []
-is_recording = False
+# Global state
+is_streaming = False
+session_id = None
+last_transcription = ""  # Track last printed transcription to avoid duplicates
 
-
-def callback(indata, frames, time_info, status):
-    global recording
-    if status:
-        print(status)
-    recording.append(indata.copy())
-
-
-def record_audio_live():
-    global recording, is_recording
-    recording = []
-    print("Recording... press ENTER again to stop.")
-    with sd.InputStream(samplerate=SAMPLERATE, channels=CHANNELS, dtype="int16", callback=callback):
-        while is_recording:
-            sd.sleep(100)
-    print("Recording stopped.")
-
-
-def play_audio(audio_np, samplerate=SAMPLERATE):
-    try:
-        sd.play(audio_np, samplerate=samplerate)
-        sd.wait()
-    except Exception as e:
-        print("Playback error:", e)
-
-
-def audio_to_base64(audio_np, samplerate=SAMPLERATE):
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
-        write(tmpfile.name, samplerate, audio_np)
-        with open(tmpfile.name, "rb") as f:
-            audio_bytes = f.read()
-    os.remove(tmpfile.name)
+def audio_chunk_to_base64(audio_chunk):
+    """Convert a single audio chunk to base64"""
+    audio_bytes = audio_chunk.tobytes()
     return base64.b64encode(audio_bytes).decode("utf-8")
 
 
 def base64_to_audio(audio_b64):
+    """Convert base64 audio to numpy array"""
     audio_bytes = base64.b64decode(audio_b64)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
         tmpfile.write(audio_bytes)
@@ -61,115 +36,160 @@ def base64_to_audio(audio_b64):
     return data, samplerate
 
 
-def generate_silence(duration=1.0, samplerate=SAMPLERATE):
-    return np.zeros((int(duration * samplerate), 1), dtype=np.int16)
-
-
-def send_audio(username, audio_b64, scenario, feedback=False):
-    data = {
-        "username": username,
-        "audio": audio_b64,
-        "feedback": feedback,
-        "scenario": scenario
-    }
-
+def play_audio(audio_np, samplerate):
+    """Play audio using sounddevice"""
     try:
-        response = requests.post(SERVER_URL, json=data, timeout=60)
-        response.raise_for_status()
-
-        content_type = response.headers.get("Content-Type", "")
-        if content_type.startswith("application/json"):
-            resp_json = response.json()
-            if "error" in resp_json or (resp_json.get("audio") and str(resp_json.get("audio")).lower() == "error"):
-                print("Server returned error:", resp_json)
-                return None
-        else:
-            resp_text = response.text.strip() if response.text else ""
-            if resp_text.lower() == "error":
-                print("Server returned error:", resp_text)
-                return None
-            resp_json = {"audio": resp_text}
-
-        audio_field = resp_json.get("audio")
-        if audio_field is None or str(audio_field).lower() == "error":
-            print("Server returned error:", resp_json)
-            return None
-
-        return audio_field
-
+        sd.play(audio_np, samplerate=samplerate)
+        sd.wait()
     except Exception as e:
-        print("Error sending request:", e)
-        return None
+        print("Playback error:", e)
+
+
+def audio_callback(indata, frames, time_info, status):
+    """Callback for continuous audio input"""
+    global sio, session_id, is_streaming
+    if status:
+        print(f"Audio status: {status}")
+    
+    if is_streaming and session_id:
+        # Convert audio chunk to base64 and send via WebSocket
+        audio_chunk = indata.copy()
+        audio_b64 = audio_chunk_to_base64(audio_chunk)
+        try:
+            sio.emit('audio_chunk', {
+                'session_id': session_id,
+                'audio': audio_b64
+            })
+        except Exception as e:
+            print(f"Error sending audio chunk: {e}")
+
 
 def main():
-    global is_recording, recording
-
+    global is_streaming, session_id, sio
+    
+    # Create Socket.IO client
+    sio = socketio.Client()
+    
+    # Event handlers
+    @sio.event
+    def connect():
+        print("Connected to server")
+    
+    @sio.event
+    def disconnect():
+        print("Disconnected from server")
+    
+    @sio.on('session_started')
+    def on_session_started(data):
+        global session_id
+        session_id = data.get('session_id')
+        print(f"Session started: {session_id}")
+    
+    @sio.on('server_ready')
+    def on_server_ready(data):
+        global is_streaming
+        print("Whisper-live server is ready!")
+        print("Start speaking... (speech will be detected automatically)")
+        is_streaming = True
+    
+    @sio.on('transcription_update')
+    def on_transcription_update(data):
+        global last_transcription
+        text = data.get('text', '')
+        # Only print if text has changed
+        if text and text != last_transcription:
+            print(f"Transcription: {text}")
+            last_transcription = text
+    
+    @sio.on('language_detected')
+    def on_language_detected(data):
+        lang = data.get('language', 'unknown')
+        prob = data.get('probability', 0)
+        print(f"Language detected: {lang} (confidence: {prob:.2f})")
+    
+    @sio.on('audio_response')
+    def on_audio_response(data):
+        global is_streaming
+        audio_b64 = data.get('audio')
+        if audio_b64:
+            print("Playing server response...")
+            try:
+                audio_np, sr = base64_to_audio(audio_b64)
+                play_audio(audio_np, sr)
+                print("\n--- Ready for next round ---\n")
+            except Exception as e:
+                print(f"Error playing audio: {e}")
+        is_streaming = False
+    
+    @sio.on('error')
+    def on_error(data):
+        message = data.get('message', 'Unknown error')
+        print(f"Error: {message}")
+    
+    # Get user input
     username = input("Enter your username: ").strip()
     if not username:
         print("Username is required!")
         return
-
+    
     scenario = input("Enter scenario number (e.g. 1, 2, 3...): ").strip()
     if not scenario.isdigit():
         print("Scenario must be a number.")
         return
-
-    print("\n=== Push-to-Talk Online Mode ===")
-    print("Press ENTER to start recording, ENTER again to stop.")
-    print("Audio will be sent to the server and the reply will play.")
+    
+    print("\n=== WebSocket Audio Streaming Mode ===")
+    print("Voice activity detection enabled - speak naturally.")
     print("Press Ctrl+C to exit.\n")
-
+    
     try:
-        while True:
-            input("Press ENTER to start recording...")
-            is_recording = True
-            rec_thread = threading.Thread(target=record_audio_live)
-            rec_thread.start()
-
-            input("")
-            is_recording = False
-            rec_thread.join()
-
-            if not recording:
-                print("No audio captured. Try again.")
-                continue
-
-            audio_np = np.concatenate(recording, axis=0)
-            audio_b64 = audio_to_base64(audio_np)
-
-            print("Sending audio to server...")
-            audio_b64_resp = send_audio(username, audio_b64, scenario, feedback=False)
-
-            if audio_b64_resp:
-                print("Playing server response...")
-                server_audio_np, sr = base64_to_audio(audio_b64_resp)
-                play_audio(server_audio_np, sr)
-            else:
-                print("No audio received from server.")
-
-            print("\n--- Ready for next round ---\n")
-            time.sleep(0.5)
-
+        # Connect to server
+        sio.connect(SERVER_URL)
+        time.sleep(0.5)
+        
+        # Start session
+        sio.emit('start_session', {
+            'username': username,
+            'scenario': scenario,
+            'language': 'nl'  # Dutch
+        })
+        time.sleep(1)  # Wait for session to initialize
+        
+        # Start continuous audio streaming
+        print("Starting audio capture...")
+        with sd.InputStream(
+            samplerate=SAMPLERATE,
+            channels=CHANNELS,
+            dtype='int16',
+            blocksize=CHUNK_SIZE,
+            callback=audio_callback
+        ):
+            # Keep the stream open until user interrupts
+            while True:
+                sd.sleep(100)
+                
+                # After a period of silence (VAD will detect), end the transcription
+                # For now, we'll wait for user to manually end or for automatic detection
+                time.sleep(0.1)
+    
     except KeyboardInterrupt:
-        print("\nConversation ended. Requesting feedback summary from server...")
-
-        silent_audio = generate_silence()
-        silent_b64 = audio_to_base64(silent_audio)
-
-        final_feedback = send_audio(username, silent_b64, scenario, feedback=True)
-
-        if final_feedback:
-            print("=== Feedback Summary ===")
+        print("\nEnding session...")
+        is_streaming = False
+        
+        if session_id and sio.connected:
             try:
-                feedback_audio, sr = base64_to_audio(final_feedback)
-                play_audio(feedback_audio, sr)
-            except Exception:
-                print(final_feedback)
-        else:
-            print("No feedback received from server.")
-
-        print("\nGoodbye!")
-        sys.exit(0)
+                # Send end signal
+                sio.emit('end_transcription', {'session_id': session_id})
+                time.sleep(2)  # Wait for final response
+            except Exception as e:
+                print(f"Error ending session: {e}")
+        
+        if sio.connected:
+            sio.disconnect()
+        print("Goodbye!")
+    
+    except Exception as e:
+        print(f"Error: {e}")
+        sio.disconnect()
 
 
 if __name__ == "__main__":

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   ollama:
     build:
@@ -11,36 +9,29 @@ services:
       - ./app/ollama:/app
     networks:
       - ai_pipeline_net
-    runtime: nvidia
 
   tts:
     build:
       context: ./app/tts
     container_name: tts
     ports:
-      - "5000:5000"
+      - "5001:5000"  # Changed from 5000 to avoid macOS conflict
     volumes:
       - ./app/tts:/usr/src/app
-    devices:
-      - "/dev/snd:/dev/snd"
     networks:
       - ai_pipeline_net
-    runtime: nvidia
 
-  faster_whisper:
+  faster_whisper_live:
     build:
-      context: ./app/faster-whisper
-    container_name: faster-whisper
-    volumes:
-      - ./app/faster-whisper:/app
-    depends_on:
-      - ollama
-      - tts
+      context: ./app/faster-whisper-live
+      dockerfile: docker/Dockerfile.cpu
+    container_name: faster-whisper-live
+    ports:
+      - "9090:9090"
     networks:
       - ai_pipeline_net
     environment:
       - PYTHONUNBUFFERED=1
-    runtime: nvidia
 
   manager:
     build:
@@ -53,7 +44,7 @@ services:
     depends_on:
       - ollama
       - tts
-      - faster_whisper
+      - faster_whisper_live
     networks:
       - ai_pipeline_net
     environment:
