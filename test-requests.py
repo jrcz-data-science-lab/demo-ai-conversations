@@ -9,7 +9,7 @@ import sys
 import threading
 import os
 
-SERVER_URL = "http://localhost:8000"
+SERVER_URL = "http://145.19.54.110:8000"
 SAMPLERATE = 16000  # Whisper-live requires 16kHz
 CHANNELS = 1
 CHUNK_SIZE = 4096  # Audio chunk size for streaming
@@ -98,7 +98,7 @@ def main():
         text = data.get('text', '')
         # Only print if text has changed
         if text and text != last_transcription:
-            print(f"Transcription: {text}")
+            print(f"Transcription: {text}") 
             last_transcription = text
     
     @sio.on('language_detected')
@@ -192,5 +192,5 @@ def main():
         sio.disconnect()
 
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     main()
