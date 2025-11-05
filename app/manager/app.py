@@ -13,6 +13,7 @@ import numpy as np
 import base64
 from io import BytesIO
 import wave
+import time
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -36,6 +37,10 @@ prompts = load_prompts()
 
 # Active WebSocket connections to whisper-live
 whisper_connections = {}
+
+# Track timestamps for inactivity detection
+last_segment_time = time.time()
+SILENCE_TIMEOUT = 3.0  # seconds of silence before triggering LLM
 
 # WebSocket handler for audio streaming from frontend
 @socketio.on('connect')
@@ -125,10 +130,20 @@ def handle_start_session(data):
                     
                     if full_text:
                         socketio.emit('transcription_update', {
-                            'text': full_text,
+                            'text': full_text, 
                             'segments': segments
                         }, to=client_sid)
+                    
+                # Silence detection
+                global last_segment_time
+                last_segment_time = time.time()
                 
+                # Check for silence (no segments received recently)
+                if time.time() - last_segment_time > SILENCE_TIMEOUT:
+                    # Trigger the LLM call
+                    print(f"[DEBUG] Silence detected for {session_id}, sending to LLM.")
+                    process_full_transcription(session_id)
+
                 elif 'language' in msg_data:
                     # Language detected
                     socketio.emit('language_detected', {
@@ -291,7 +306,6 @@ def handle_end_transcription(data):
 # def request_handling():
 #     pass  # Now handled via WebSocket
 
-
 @app.route('/generate', methods=['POST'])
 def generate_response():
     data = request.json
@@ -377,6 +391,56 @@ def generate_feedback():
 
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Ollama error: {e}"}), 500
+
+def process_full_transcription(session_id):
+    conn = whisper_connections.get(session_id)
+    if not conn:
+        return
+
+    username = conn['username']
+    scenario = conn['scenario']
+    client_sid = conn['client_sid']
+    full_transcript = conn.get('full_transcript', '').strip()
+
+    if not full_transcript:
+        print("[DEBUG] No text to process yet.")
+        return
+
+    # Prepare the request payload as expected by `/generate`
+    data = {
+        "username": username,
+        "transcript": full_transcript,
+        "scenario": scenario,
+        "voice": "Filip Traverse"  # or any dynamic choice
+    }
+
+    try:
+        # Make the HTTP request to /generate route
+        response = requests.post(GENERATE_URL, json=data)
+
+        # Check for errors in the response
+        if response.status_code != 200:
+            raise Exception(f"Error generating response: {response.text}")
+
+        # Process the response from /generate
+        result = response.json()
+        if "error" in result:
+            raise Exception(f"Error: {result['error']}")
+
+        response_text = result["response"]
+        audio_b64 = result["audio"]
+
+        # Emit response back to the client
+        socketio.emit('audio_response', {'audio': audio_b64, 'text': response_text}, to=client_sid)
+
+        print(f"[DEBUG] Sent LLM + TTS response to {session_id}")
+
+        # Optionally clear transcript for next message
+        whisper_connections[session_id]['full_transcript'] = ""
+
+    except Exception as e:
+        print(f"[ERROR] LLM processing failed: {e}")
+        socketio.emit('error', {'message': str(e)}, to=client_sid)
 
 if __name__ == '__main__':
     init_db()
