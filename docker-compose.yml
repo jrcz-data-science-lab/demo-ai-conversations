@@ -28,7 +28,7 @@ services:
   faster_whisper_live:
     build:
       context: ./app/faster-whisper-live
-      dockerfile: docker/Dockerfile.cpu
+      dockerfile: docker/Dockerfile.gpu
     container_name: faster-whisper-live
     ports:
       - "9090:9090"

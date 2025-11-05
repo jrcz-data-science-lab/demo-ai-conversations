@@ -38,9 +38,49 @@ prompts = load_prompts()
 # Active WebSocket connections to whisper-live
 whisper_connections = {}
 
-# Track timestamps for inactivity detection
-last_segment_time = time.time()
+# Track timestamps for inactivity detection per session
 SILENCE_TIMEOUT = 3.0  # seconds of silence before triggering LLM
+SILENCE_CHECK_INTERVAL = 0.5  # Check for silence every 0.5 seconds
+
+# Silence checker class for background silence detection
+class SilenceChecker:
+    def __init__(self, session_id, check_interval=SILENCE_CHECK_INTERVAL):
+        self.session_id = session_id
+        self.check_interval = check_interval
+        self.running = True
+        self.thread = None
+    
+    def start(self):
+        self.thread = threading.Thread(target=self._check_silence, daemon=True)
+        self.thread.start()
+    
+    def stop(self):
+        self.running = False
+    
+    def _check_silence(self):
+        """Background thread that periodically checks for silence"""
+        while self.running:
+            time.sleep(self.check_interval)
+            if not self.running:
+                break
+            
+            if self.session_id not in whisper_connections:
+                break
+            
+            conn = whisper_connections.get(self.session_id)
+            if not conn:
+                break
+            
+            last_time = conn.get('last_segment_time', time.time())
+            time_since_last = time.time() - last_time
+            
+            if time_since_last > SILENCE_TIMEOUT:
+                full_transcript = conn.get('full_transcript', '').strip()
+                if full_transcript:
+                    print(f"[DEBUG] [SILENCE] Silence detected for {self.session_id} ({time_since_last:.1f}s), triggering LLM")
+                    # Reset timestamp to prevent repeated triggers
+                    conn['last_segment_time'] = time.time()
+                    process_full_transcription(self.session_id)
 
 # WebSocket handler for audio streaming from frontend
 @socketio.on('connect')
@@ -74,10 +114,11 @@ def handle_start_session(data):
         
         # Flag to track when connection is ready
         ws_ready = th.Event()
+        server_ready = th.Event()  # Track when SERVER_READY is received
         
         def on_open(ws):
             """Handle WebSocket opening"""
-            print(f"[DEBUG] Whisper-live WebSocket opened for {session_id}")
+            print(f"[DEBUG] [WS] WebSocket connection opened for {session_id}")
             ws_ready.set()
             
             # Send initialization message to whisper-live
@@ -85,7 +126,7 @@ def handle_start_session(data):
                 "uid": session_id,
                 "language": language,
                 "task": "transcribe",
-                "model": "tiny",  # Use tiny for CPU performance
+                "model": "large-v3-turbo",
                 "use_vad": True,
                 "send_last_n_segments": 10,
                 "no_speech_thresh": 0.45,
@@ -93,12 +134,13 @@ def handle_start_session(data):
                 "same_output_threshold": 10
             })
             
-            print(f"[DEBUG] Sending init message to whisper-live for {session_id}")
+            print(f"[DEBUG] [WS] Sending init message to whisper-live for {session_id}")
             try:
                 ws.send(init_msg)
-                print(f"[DEBUG] Init message sent successfully")
+                print(f"[DEBUG] [WS] Init message sent successfully to {WHISPER_LIVE_URL}")
             except Exception as e:
-                print(f"[ERROR] Failed to send init message: {e}")
+                print(f"[ERROR] [WS] Failed to send init message: {e}")
+                socketio.emit('error', {'message': f"Failed to initialize whisper-live: {str(e)}"}, to=client_sid)
         
         def on_message(ws, message):
             """Handle messages from whisper-live"""
@@ -108,15 +150,19 @@ def handle_start_session(data):
                 if 'status' in msg_data:
                     # Status messages
                     if msg_data['status'] == 'SERVER_READY':
-                        print(f"Whisper-live ready for {session_id}")
+                        print(f"[DEBUG] [WS] SERVER_READY received for {session_id}")
+                        server_ready.set()
                         socketio.emit('server_ready', {'session_id': session_id}, to=client_sid)
                     elif msg_data['status'] == 'ERROR':
-                        socketio.emit('error', {'message': msg_data.get('message', 'Unknown error')}, to=client_sid)
+                        error_msg = msg_data.get('message', 'Unknown error')
+                        print(f"[ERROR] [WS] Error from whisper-live: {error_msg}")
+                        socketio.emit('error', {'message': error_msg}, to=client_sid)
                 
                 elif 'message' in msg_data:
                     # Message-based status (like SERVER_READY from faster_whisper)
                     if msg_data['message'] == 'SERVER_READY':
-                        print(f"Whisper-live ready for {session_id}")
+                        print(f"[DEBUG] [WS] SERVER_READY (message format) received for {session_id}")
+                        server_ready.set()
                         socketio.emit('server_ready', {'session_id': session_id}, to=client_sid)
                 
                 elif 'segments' in msg_data:
@@ -124,78 +170,103 @@ def handle_start_session(data):
                     segments = msg_data['segments']
                     full_text = ' '.join([seg['text'] for seg in segments if seg.get('completed', False)])
                     
-                    # Store transcript
+                    print(f"[DEBUG] [TRANSCRIPT] Received segments for {session_id}: {full_text[:100]}...")
+                    
+                    # Store transcript and update last_segment_time
                     if session_id in whisper_connections:
                         whisper_connections[session_id]['full_transcript'] = full_text
+                        whisper_connections[session_id]['last_segment_time'] = time.time()  # Update timestamp when segments received
+                        print(f"[DEBUG] [TRANSCRIPT] Updated last_segment_time for {session_id}")
                     
                     if full_text:
                         socketio.emit('transcription_update', {
                             'text': full_text, 
                             'segments': segments
                         }, to=client_sid)
-                    
-                # Silence detection
-                global last_segment_time
-                last_segment_time = time.time()
-                
-                # Check for silence (no segments received recently)
-                if time.time() - last_segment_time > SILENCE_TIMEOUT:
-                    # Trigger the LLM call
-                    print(f"[DEBUG] Silence detected for {session_id}, sending to LLM.")
-                    process_full_transcription(session_id)
 
                 elif 'language' in msg_data:
                     # Language detected
+                    print(f"[DEBUG] [WS] Language detected for {session_id}: {msg_data['language']}")
                     socketio.emit('language_detected', {
                         'language': msg_data['language'],
                         'probability': msg_data.get('language_prob', 0)
                     }, to=client_sid)
                     
             except json.JSONDecodeError:
-                print(f"Failed to decode message from whisper-live: {message}")
+                print(f"[ERROR] [WS] Failed to decode message from whisper-live: {message[:100]}")
             except Exception as e:
-                print(f"Error processing whisper-live message: {e}")
+                print(f"[ERROR] [WS] Error processing whisper-live message: {e}")
+                import traceback
+                traceback.print_exc()
         
         def on_error(ws, error):
-            print(f"WebSocket error: {error}")
-            socketio.emit('error', {'message': str(error)}, to=client_sid)
+            print(f"[ERROR] [WS] WebSocket error for {session_id}: {error}")
+            socketio.emit('error', {'message': f"WebSocket error: {str(error)}"}, to=client_sid)
         
         def on_close(ws, close_status_code, close_msg):
-            print(f"Whisper-live connection closed: {close_status_code}")
+            print(f"[DEBUG] [WS] Whisper-live connection closed for {session_id}: code={close_status_code}, msg={close_msg}")
             if session_id in whisper_connections:
+                # Stop the silence checker thread
+                if 'silence_checker' in whisper_connections[session_id]:
+                    whisper_connections[session_id]['silence_checker'].stop()
                 del whisper_connections[session_id]
         
         # Create WebSocket connection to whisper-live
-        ws = websocket.WebSocketApp(
-            WHISPER_LIVE_URL,
-            on_open=on_open,
-            on_message=on_message,
-            on_error=on_error,
-            on_close=on_close
-        )
-        
-        # Start connection in a thread
-        def run_ws():
-            ws.run_forever()
-        
-        ws_thread = threading.Thread(target=run_ws, daemon=True)
-        ws_thread.start()
+        try:
+            print(f"[DEBUG] [WS] Creating WebSocket connection to {WHISPER_LIVE_URL} for {session_id}")
+            ws = websocket.WebSocketApp(
+                WHISPER_LIVE_URL,
+                on_open=on_open,
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close
+            )
+            
+            # Start connection in a thread
+            def run_ws():
+                try:
+                    ws.run_forever()
+                except Exception as e:
+                    print(f"[ERROR] [WS] WebSocket run_forever error for {session_id}: {e}")
+                    socketio.emit('error', {'message': f"WebSocket connection error: {str(e)}"}, to=client_sid)
+            
+            ws_thread = threading.Thread(target=run_ws, daemon=True)
+            ws_thread.start()
+        except Exception as e:
+            print(f"[ERROR] [WS] Failed to create WebSocket for {session_id}: {e}")
+            import traceback
+            traceback.print_exc()
+            socketio.emit('error', {'message': f"Failed to create WebSocket connection: {str(e)}"}, to=client_sid)
+            return
         
         # Wait for connection to establish (max 5 seconds)
-        ws_ready.wait(timeout=5)
+        if not ws_ready.wait(timeout=5):
+            print(f"[ERROR] [WS] WebSocket connection timeout for {session_id}")
+            socketio.emit('error', {'message': 'Failed to connect to whisper-live server'}, to=client_sid)
+            return
         
-        # Store connection
+        # Wait for SERVER_READY (max 10 seconds)
+        if not server_ready.wait(timeout=10):
+            print(f"[WARNING] [WS] SERVER_READY not received for {session_id} within timeout")
+        
+        # Store connection with per-session silence tracking
         whisper_connections[session_id] = {
             'ws': ws,
             'username': username,
             'scenario': scenario,
             'thread': ws_thread,
             'full_transcript': '',
-            'client_sid': client_sid
+            'client_sid': client_sid,
+            'last_segment_time': time.time(),  # Initialize timestamp
+            'server_ready': server_ready.is_set()
         }
+                
+        silence_checker = SilenceChecker(session_id)
+        silence_checker.start()
+        whisper_connections[session_id]['silence_checker'] = silence_checker
         
         emit('session_started', {'session_id': session_id})
-        print(f"[DEBUG] Session {session_id} initialized successfully")
+        print(f"[DEBUG] Session {session_id} initialized successfully (server_ready={server_ready.is_set()})")
     
     except Exception as e:
         print(f"[ERROR] Exception in handle_start_session: {e}")
@@ -217,19 +288,38 @@ def handle_audio_chunk(data):
         emit('error', {'message': 'Invalid session_id'})
         return
     
+    conn = whisper_connections[session_id]
+    
+    # Check if server is ready
+    if not conn.get('server_ready', False):
+        # Silently drop audio chunks until server is ready
+        return
+    
     try:
         # Decode base64 audio to float32 numpy array
         audio_bytes = base64.b64decode(audio_base64)
         audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
+        
+        # Verify audio format: 16kHz, mono, int16 -> float32
+        # Convert int16 [-32768, 32767] to float32 [-1.0, 1.0]
         audio_float32 = audio_array.astype(np.float32) / 32768.0
         
+        # Verify the audio is valid (not all zeros, reasonable size)
+        if len(audio_float32) == 0:
+            print(f"[WARNING] [AUDIO] Empty audio chunk received for {session_id}")
+            return
+        
         # Send to whisper-live (binary mode)
-        ws = whisper_connections[session_id]['ws']
-        ws.send(audio_float32.tobytes(), opcode=websocket.ABNF.OPCODE_BINARY)
+        # faster-whisper-live expects float32 binary data at 16kHz
+        ws = conn['ws']
+        audio_bytes_send = audio_float32.tobytes()
+        ws.send(audio_bytes_send, opcode=websocket.ABNF.OPCODE_BINARY)
         
     except Exception as e:
-        print(f"Error processing audio chunk: {e}")
-        emit('error', {'message': str(e)})
+        print(f"[ERROR] [AUDIO] Error processing audio chunk for {session_id}: {e}")
+        import traceback
+        traceback.print_exc()
+        emit('error', {'message': f"Audio processing error: {str(e)}"})
 
 @socketio.on('end_transcription')
 def handle_end_transcription(data):
@@ -395,6 +485,7 @@ def generate_feedback():
 def process_full_transcription(session_id):
     conn = whisper_connections.get(session_id)
     if not conn:
+        print(f"[WARNING] [LLM] No connection found for {session_id}")
         return
 
     username = conn['username']
@@ -403,10 +494,12 @@ def process_full_transcription(session_id):
     full_transcript = conn.get('full_transcript', '').strip()
 
     if not full_transcript:
-        print("[DEBUG] No text to process yet.")
+        print(f"[DEBUG] [LLM] No text to process yet for {session_id}")
         return
+    
+    print(f"[DEBUG] [LLM] Processing transcription for {session_id}: '{full_transcript[:100]}...'")
 
-    # Prepare the request payload as expected by `/generate`
+    # Prepare the request payload as expected by /generate
     data = {
         "username": username,
         "transcript": full_transcript,
