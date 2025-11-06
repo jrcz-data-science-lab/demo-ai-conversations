@@ -142,6 +142,7 @@ def generate_feedback():
         ollama_response.raise_for_status()
         feedback_text = ollama_response.json().get("response", "")
 
+        print(feedback_text)
         if feedback_text:
             tts_resp = requests.post(TTS_URL, json={"text": feedback_text, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
