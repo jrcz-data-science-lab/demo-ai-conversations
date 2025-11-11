@@ -28,3 +28,10 @@ def read_history(username):
         c.execute("SELECT speaker, text FROM messages WHERE user_id = ? ORDER BY timestamp ASC", (user_id,))
         rows = c.fetchall()
     return "\n".join([f"{speaker}: {text}" for speaker, text in rows])
+    
+def clear_history(username):
+    user_id = get_or_create_user(username)
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM messages WHERE user_id = ?", (user_id,))
+        conn.commit()

@@ -1,14 +1,25 @@
-FROM python:3.10
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
 
 WORKDIR /usr/src/app
 
-RUN apt update -y && apt install -y alsa-utils
+RUN apt update -y && apt-get install -y --no-install-recommends \
+    git \
+    python3 \
+    python3-pip \
+    python3-venv
 
-COPY requirements.txt ./
-RUN pip install -r requirements.txt
+RUN python3 -m venv /opt/venv
+
+ENV PATH="/opt/venv/bin:$PATH"
+
+RUN git clone https://github.com/idiap/coqui-ai-TTS /tmp/coqui-ai-TTS && \
+    cd /tmp/coqui-ai-TTS && \
+    pip install -e .
 
 COPY . .
 
+RUN pip install -r requirements.txt
+
 EXPOSE 5000
 
-ENTRYPOINT ["/bin/bash", "script.sh"]
+CMD ["python", "tts.py"]
