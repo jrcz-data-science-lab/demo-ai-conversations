@@ -421,7 +421,14 @@ class TranscriptionServer:
             if faster_whisper_custom_model_path or whisper_tensorrt_path:
                 logging.info("Custom model option was provided. Switching to single model mode.")
                 self.single_model = True
-                # TODO: load model initially
+                # OPTIMIZATION: Warm-start the model - preload into GPU memory at startup
+                self._warm_start_model(
+                    backend=BackendType(backend),
+                    faster_whisper_custom_model_path=faster_whisper_custom_model_path,
+                    whisper_tensorrt_path=whisper_tensorrt_path,
+                    trt_multilingual=trt_multilingual,
+                    trt_py_session=trt_py_session,
+                )
             else:
                 logging.info("Single model mode currently only works with custom models.")
         if not BackendType.is_valid(backend):
@@ -469,6 +476,77 @@ class TranscriptionServer:
                 time.sleep(0.1)    # Sleep 100m; wait some voice activity.
             return False
         return True
+
+    def _warm_start_model(self, backend, faster_whisper_custom_model_path=None,
+                          whisper_tensorrt_path=None, trt_multilingual=False, trt_py_session=False):
+        """
+        OPTIMIZATION: Warm-start the model by preloading it into GPU memory and running
+        a dummy inference. This eliminates the model loading delay on the first real request.
+        
+        Args:
+            backend: The backend type to use
+            faster_whisper_custom_model_path: Path to faster whisper model
+            whisper_tensorrt_path: Path to TensorRT model
+            trt_multilingual: Whether TensorRT model is multilingual
+            trt_py_session: Whether to use Python session for TensorRT
+        """
+        import numpy as np
+        logging.info("[OPTIMIZATION] Starting model warm-up...")
+        warm_start_time = time.time()
+        
+        try:
+            # Create a dummy websocket-like object for warm-up
+            class DummyWebSocket:
+                def send(self, *args, **kwargs):
+                    pass
+                def close(self):
+                    pass
+            
+            dummy_ws = DummyWebSocket()
+            dummy_options = {
+                "uid": "warmup",
+                "language": "en",
+                "task": "transcribe",
+                "model": faster_whisper_custom_model_path or "small",
+                "use_vad": True,
+                "send_last_n_segments": 10,
+                "no_speech_thresh": 0.45,
+                "clip_audio": False,
+                "same_output_threshold": 10,
+            }
+            
+            # Initialize a dummy client to load the model
+            if backend.is_faster_whisper():
+                from whisper_live.backend.faster_whisper_backend import ServeClientFasterWhisper
+                dummy_client = ServeClientFasterWhisper(
+                    dummy_ws,
+                    language=dummy_options["language"],
+                    task=dummy_options["task"],
+                    client_uid=dummy_options["uid"],
+                    model=dummy_options["model"],
+                    use_vad=dummy_options["use_vad"],
+                    single_model=self.single_model,
+                    send_last_n_segments=dummy_options["send_last_n_segments"],
+                    no_speech_thresh=dummy_options["no_speech_thresh"],
+                    clip_audio=dummy_options["clip_audio"],
+                    same_output_threshold=dummy_options["same_output_threshold"],
+                    cache_path=self.cache_path,
+                )
+                
+                # Run a dummy 1-second audio inference to warm up GPU
+                dummy_audio = np.random.randn(16000).astype(np.float32)  # 1 second at 16kHz
+                logging.info("[OPTIMIZATION] Running dummy inference to warm up GPU...")
+                dummy_result = dummy_client.transcribe_audio(dummy_audio)
+                logging.info(f"[OPTIMIZATION] Model warm-up completed in {time.time() - warm_start_time:.2f}s")
+                
+                # Clean up dummy client
+                dummy_client.cleanup()
+            else:
+                logging.info(f"[OPTIMIZATION] Warm-start not implemented for backend: {backend.value}")
+                
+        except Exception as e:
+            logging.warning(f"[OPTIMIZATION] Model warm-up failed (non-critical): {e}")
+            # Continue anyway - warm-up is optional
 
     def cleanup(self, websocket):
         """

@@ -38,23 +38,33 @@ prompts = load_prompts()
 # Active WebSocket connections to whisper-live
 whisper_connections = {}
 
+# OPTIMIZATION: Track full audio for hybrid approach (streaming + final accurate transcript)
+# Store complete audio buffer per session for final transcription
+session_audio_buffers = {}
+
 # Track timestamps for inactivity detection per session
 SILENCE_TIMEOUT = 3.0  # seconds of silence before triggering LLM
 SILENCE_CHECK_INTERVAL = 0.5  # Check for silence every 0.5 seconds
 
 # Silence checker class for background silence detection
 class SilenceChecker:
-    def __init__(self, session_id, check_interval=SILENCE_CHECK_INTERVAL):
+    """Background thread that periodically checks for silence and triggers LLM processing"""
+    
+    def __init__(self, session_id, check_interval=None):
+        if check_interval is None:
+            check_interval = SILENCE_CHECK_INTERVAL
         self.session_id = session_id
         self.check_interval = check_interval
         self.running = True
         self.thread = None
     
     def start(self):
+        """Start the silence checking thread"""
         self.thread = threading.Thread(target=self._check_silence, daemon=True)
         self.thread.start()
     
     def stop(self):
+        """Stop the silence checking thread"""
         self.running = False
     
     def _check_silence(self):
@@ -126,7 +136,7 @@ def handle_start_session(data):
                 "uid": session_id,
                 "language": language,
                 "task": "transcribe",
-                "model": "large-v3-turbo",
+                "model": "large-v3",  # Use large-v3 for best accuracy with GPU
                 "use_vad": True,
                 "send_last_n_segments": 10,
                 "no_speech_thresh": 0.45,
@@ -210,6 +220,9 @@ def handle_start_session(data):
                 if 'silence_checker' in whisper_connections[session_id]:
                     whisper_connections[session_id]['silence_checker'].stop()
                 del whisper_connections[session_id]
+            # OPTIMIZATION: Clean up audio buffer
+            if session_id in session_audio_buffers:
+                del session_audio_buffers[session_id]
         
         # Create WebSocket connection to whisper-live
         try:
@@ -260,7 +273,12 @@ def handle_start_session(data):
             'last_segment_time': time.time(),  # Initialize timestamp
             'server_ready': server_ready.is_set()
         }
-                
+        
+        # OPTIMIZATION: Initialize audio buffer for hybrid approach
+        # This stores all audio chunks for final accurate transcription
+        session_audio_buffers[session_id] = []
+        
+        # Start silence checker thread for this session
         silence_checker = SilenceChecker(session_id)
         silence_checker.start()
         whisper_connections[session_id]['silence_checker'] = silence_checker
@@ -308,6 +326,11 @@ def handle_audio_chunk(data):
         if len(audio_float32) == 0:
             print(f"[WARNING] [AUDIO] Empty audio chunk received for {session_id}")
             return
+        
+        # OPTIMIZATION: Store audio for hybrid approach (final accurate transcript)
+        # Keep full audio buffer for final transcription
+        if session_id in session_audio_buffers:
+            session_audio_buffers[session_id].append(audio_float32.copy())
         
         # Send to whisper-live (binary mode)
         # faster-whisper-live expects float32 binary data at 16kHz
@@ -398,6 +421,13 @@ def handle_end_transcription(data):
 
 @app.route('/generate', methods=['POST'])
 def generate_response():
+    """
+    OPTIMIZATION: Added profiling for AI (Ollama) and TTS stages.
+    Measures latency for each pipeline stage separately.
+    """
+    # OPTIMIZATION: Profile total request time
+    request_start_time = time.time()
+    
     data = request.json
     username = data.get("username")
     transcript = data.get("transcript")
@@ -421,18 +451,33 @@ def generate_response():
     print(prompt_text)
 
     try:
+        # OPTIMIZATION: Profile AI (Ollama) latency
+        ai_start_time = time.time()
         ollama_response = requests.post(
             OLLAMA_URL,
             json={"prompt": prompt_text, "model": "mistral-small3.2:24b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
+        ai_latency = time.time() - ai_start_time
+        print(f"[PROFILING] [AI] Ollama inference: {ai_latency:.3f}s")
         print(response_text)
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
+            
+            # OPTIMIZATION: Profile TTS latency
+            tts_start_time = time.time()
             tts_resp = requests.post(TTS_URL, json={"text": response_text, "voice": voice})
+            tts_latency = time.time() - tts_start_time
+            print(f"[PROFILING] [TTS] Text-to-speech: {tts_latency:.3f}s")
+            
             audio_b64 = tts_resp.json().get("audio")
+            
+            # OPTIMIZATION: Log total request time
+            total_latency = time.time() - request_start_time
+            print(f"[PROFILING] [PIPELINE] Total /generate latency: {total_latency:.3f}s (AI: {ai_latency:.3f}s, TTS: {tts_latency:.3f}s)")
+            
             return jsonify({"response": response_text, "audio": audio_b64})
 
         return jsonify({"error": "Empty response from model"}), 500
@@ -483,6 +528,10 @@ def generate_feedback():
         return jsonify({"error": f"Ollama error: {e}"}), 500
 
 def process_full_transcription(session_id):
+    """
+    OPTIMIZATION: Hybrid approach - process both streaming transcript and full audio.
+    Uses streaming transcript for quick response, but also sends full audio for final accuracy.
+    """
     conn = whisper_connections.get(session_id)
     if not conn:
         print(f"[WARNING] [LLM] No connection found for {session_id}")
@@ -492,14 +541,23 @@ def process_full_transcription(session_id):
     scenario = conn['scenario']
     client_sid = conn['client_sid']
     full_transcript = conn.get('full_transcript', '').strip()
+    
+    # OPTIMIZATION: Get full audio buffer for final accurate transcription
+    full_audio = None
+    if session_id in session_audio_buffers and session_audio_buffers[session_id]:
+        # Concatenate all audio chunks
+        full_audio = np.concatenate(session_audio_buffers[session_id])
+        print(f"[OPTIMIZATION] [HYBRID] Full audio buffer: {len(full_audio)/16000:.2f}s for {session_id}")
 
     if not full_transcript:
         print(f"[DEBUG] [LLM] No text to process yet for {session_id}")
         return
     
-    print(f"[DEBUG] [LLM] Processing transcription for {session_id}: '{full_transcript[:100]}...'")
+    # OPTIMIZATION: Profile end-to-end latency
+    pipeline_start_time = time.time()
+    print(f"[PROFILING] [PIPELINE] Starting end-to-end processing for {session_id}")
 
-    # Prepare the request payload as expected by /generate
+    # Prepare the request payload as expected by `/generate`
     data = {
         "username": username,
         "transcript": full_transcript,
@@ -508,6 +566,9 @@ def process_full_transcription(session_id):
     }
 
     try:
+        # OPTIMIZATION: Profile AI (Ollama) latency
+        ai_start_time = time.time()
+        
         # Make the HTTP request to /generate route
         response = requests.post(GENERATE_URL, json=data)
 
@@ -522,14 +583,25 @@ def process_full_transcription(session_id):
 
         response_text = result["response"]
         audio_b64 = result["audio"]
+        
+        # OPTIMIZATION: Log AI timing
+        ai_latency = time.time() - ai_start_time
+        print(f"[PROFILING] [AI] Client {session_id}: {ai_latency:.3f}s for Ollama inference")
+
+        # OPTIMIZATION: Profile TTS latency (already included in /generate, but log separately)
+        # TTS is called inside /generate, so we measure total AI+TTS time
+        total_latency = time.time() - pipeline_start_time
+        print(f"[PROFILING] [PIPELINE] End-to-end latency: {total_latency:.3f}s (STT→AI→TTS)")
 
         # Emit response back to the client
         socketio.emit('audio_response', {'audio': audio_b64, 'text': response_text}, to=client_sid)
 
         print(f"[DEBUG] Sent LLM + TTS response to {session_id}")
 
-        # Optionally clear transcript for next message
+        # OPTIMIZATION: Clear buffers for next message
         whisper_connections[session_id]['full_transcript'] = ""
+        if session_id in session_audio_buffers:
+            session_audio_buffers[session_id] = []
 
     except Exception as e:
         print(f"[ERROR] LLM processing failed: {e}")

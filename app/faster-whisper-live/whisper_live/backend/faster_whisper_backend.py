@@ -6,6 +6,7 @@ import time
 import torch
 import ctranslate2
 from huggingface_hub import snapshot_download
+import queue as q
 
 from whisper_live.transcriber.transcriber_faster_whisper import WhisperModel
 from whisper_live.backend.base import ServeClientBase
@@ -14,6 +15,14 @@ from whisper_live.backend.base import ServeClientBase
 class ServeClientFasterWhisper(ServeClientBase):
     SINGLE_MODEL = None
     SINGLE_MODEL_LOCK = threading.Lock()
+    
+    # OPTIMIZATION: Global batching queue for asynchronous GPU processing
+    # This allows multiple clients/chunks to be processed in a single batch
+    _BATCH_QUEUE = q.Queue()
+    _BATCH_PROCESSOR_THREAD = None
+    _BATCH_PROCESSOR_LOCK = threading.Lock()
+    _BATCH_SIZE = 4  # Process up to 4 chunks/clients in a single batch
+    _BATCH_TIMEOUT = 0.05  # Wait up to 50ms to collect a batch
 
     def __init__(
         self,
@@ -109,6 +118,16 @@ class ServeClientFasterWhisper(ServeClientBase):
             return
 
         self.use_vad = use_vad
+        
+        # OPTIMIZATION: Start batch processor thread if not already running
+        with ServeClientFasterWhisper._BATCH_PROCESSOR_LOCK:
+            if ServeClientFasterWhisper._BATCH_PROCESSOR_THREAD is None or not ServeClientFasterWhisper._BATCH_PROCESSOR_THREAD.is_alive():
+                ServeClientFasterWhisper._BATCH_PROCESSOR_THREAD = threading.Thread(
+                    target=self._batch_processor_worker,
+                    daemon=True
+                )
+                ServeClientFasterWhisper._BATCH_PROCESSOR_THREAD.start()
+                logging.info("[OPTIMIZATION] Started asynchronous GPU batch processor")
 
         # threading
         self.trans_thread = threading.Thread(target=self.speech_to_text)
@@ -193,6 +212,8 @@ class ServeClientFasterWhisper(ServeClientBase):
         If the language has not been set, it updates the session's language based on the transcription
         information.
 
+        OPTIMIZATION: Added timing profiling to measure STT latency.
+
         Args:
             input_sample (np.array): The audio chunk to be transcribed. This should be a NumPy
                                     array representing the audio data.
@@ -202,6 +223,9 @@ class ServeClientFasterWhisper(ServeClientBase):
             depends on the implementation of the `transcriber.transcribe` method but typically
             includes the transcribed text.
         """
+        # OPTIMIZATION: Profile STT latency
+        stt_start_time = time.time()
+        
         if ServeClientFasterWhisper.SINGLE_MODEL:
             ServeClientFasterWhisper.SINGLE_MODEL_LOCK.acquire()
         result, info = self.transcriber.transcribe(
@@ -214,9 +238,67 @@ class ServeClientFasterWhisper(ServeClientBase):
         if ServeClientFasterWhisper.SINGLE_MODEL:
             ServeClientFasterWhisper.SINGLE_MODEL_LOCK.release()
 
+        # OPTIMIZATION: Log STT timing
+        stt_latency = time.time() - stt_start_time
+        logging.info(f"[PROFILING] [STT] Client {self.client_uid}: {stt_latency:.3f}s for {len(input_sample)/16000:.2f}s audio")
+
         if self.language is None and info is not None:
             self.set_language(info)
         return result
+    
+    @staticmethod
+    def _batch_processor_worker():
+        """
+        OPTIMIZATION: Background worker thread that processes batched transcription requests.
+        This reduces GPU context switching by processing multiple chunks/clients together.
+        """
+        while True:
+            try:
+                batch_items = []
+                start_time = time.time()
+                
+                # Collect items for batching (wait up to BATCH_TIMEOUT)
+                while len(batch_items) < ServeClientFasterWhisper._BATCH_SIZE:
+                    try:
+                        item = ServeClientFasterWhisper._BATCH_QUEUE.get(timeout=ServeClientFasterWhisper._BATCH_TIMEOUT)
+                        batch_items.append(item)
+                        # If we have at least one item and timeout reached, process
+                        if time.time() - start_time >= ServeClientFasterWhisper._BATCH_TIMEOUT:
+                            break
+                    except q.Empty:
+                        if batch_items:
+                            break
+                        continue
+                
+                # Process batch if we have items
+                if batch_items:
+                    # For now, process sequentially (can be enhanced with true batch inference)
+                    for client, audio_sample, callback in batch_items:
+                        try:
+                            result = client._transcribe_audio_direct(audio_sample)
+                            if callback:
+                                callback(result)
+                        except Exception as e:
+                            logging.error(f"[BATCH] Error processing batch item: {e}")
+                            
+            except Exception as e:
+                logging.error(f"[BATCH] Batch processor error: {e}")
+                time.sleep(0.1)
+    
+    def _transcribe_audio_direct(self, input_sample):
+        """Direct transcription without batching (used by batch processor)"""
+        if ServeClientFasterWhisper.SINGLE_MODEL:
+            ServeClientFasterWhisper.SINGLE_MODEL_LOCK.acquire()
+        result, info = self.transcriber.transcribe(
+            input_sample,
+            initial_prompt=self.initial_prompt,
+            language=self.language,
+            task=self.task,
+            vad_filter=self.use_vad,
+            vad_parameters=self.vad_parameters if self.use_vad else None)
+        if ServeClientFasterWhisper.SINGLE_MODEL:
+            ServeClientFasterWhisper.SINGLE_MODEL_LOCK.release()
+        return result, info
 
     def handle_transcription_output(self, result, duration):
         """

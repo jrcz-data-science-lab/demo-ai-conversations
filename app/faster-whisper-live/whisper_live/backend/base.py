@@ -84,7 +84,9 @@ class ServeClientBase(object):
                 self.clip_audio_if_no_valid_segment()
 
             input_bytes, duration = self.get_audio_chunk_for_processing()
-            if duration < 1.0:
+            # OPTIMIZATION: Increased minimum chunk size from 1.0s to 2.0s to reduce inference calls
+            # This reduces GPU context switching and improves throughput
+            if duration < 2.0:
                 time.sleep(0.1)     # wait for audio chunks to arrive
                 continue
             try:
@@ -93,7 +95,8 @@ class ServeClientBase(object):
 
                 if result is None or self.language is None:
                     self.timestamp_offset += duration
-                    time.sleep(0.25)    # wait for voice activity, result is None when no voice activity
+                    # OPTIMIZATION: Reduced sleep time from 0.25s to 0.1s for faster response
+                    time.sleep(0.1)    # wait for voice activity, result is None when no voice activity
                     continue
                 self.handle_transcription_output(result, duration)
 
