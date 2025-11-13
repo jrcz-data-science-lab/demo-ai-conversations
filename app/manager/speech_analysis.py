@@ -207,24 +207,121 @@ def add_positive_compliments(metrics, existing_feedback):
     return existing_feedback
 
 
-def calculate_confidence_score(metrics):
+def analyze_content_quality(conversation_history):
     """
-    Calculate confidence score (0-100) based on speech patterns.
+    Analyze content quality from conversation history.
+    Detects nonsensical, unhelpful, or irrelevant responses.
+    
+    Args:
+        conversation_history: Full conversation text from read_history
+        
+    Returns:
+        dict: {
+            "quality_score": float (0-1.0, multiplier for confidence),
+            "issues": list of detected content quality issues,
+            "penalty": int (points to subtract from confidence score)
+        }
+    """
+    if not conversation_history:
+        return {"quality_score": 1.0, "issues": [], "penalty": 0}
+    
+    # Extract student messages only
+    student_messages = []
+    for line in conversation_history.split("\n"):
+        if line.startswith("Student:"):
+            student_text = line.replace("Student:", "").strip()
+            if student_text:
+                student_messages.append(student_text)
+    
+    if not student_messages:
+        return {"quality_score": 1.0, "issues": [], "penalty": 0}
+    
+    issues = []
+    penalty = 0
+    quality_score = 1.0
+    
+    # Check for very short responses (might indicate unhelpful/nonsensical)
+    very_short_responses = 0
+    total_responses = len(student_messages)
+    
+    for msg in student_messages:
+        word_count = len(msg.split())
+        # Responses with 1-3 words are likely unhelpful
+        if word_count <= 3:
+            very_short_responses += 1
+    
+    if total_responses > 0:
+        short_ratio = very_short_responses / total_responses
+        if short_ratio > 0.5:  # More than 50% are very short
+            issues.append("Veel te korte reacties (mogelijk niet behulpzaam)")
+            penalty += 20
+            quality_score *= 0.8
+        elif short_ratio > 0.3:  # More than 30% are very short
+            issues.append("Veel korte reacties")
+            penalty += 10
+            quality_score *= 0.9
+    
+    # Check for repetitive/nonsensical patterns
+    # Count single-word responses like "ok", "ja", "nee", "uh"
+    non_substantive_words = ["ok", "oké", "ja", "nee", "uh", "um", "euh", "ja", "okay", "okey"]
+    non_substantive_count = 0
+    
+    for msg in student_messages:
+        words = msg.lower().split()
+        if len(words) <= 2 and any(word.strip(".,!?") in non_substantive_words for word in words):
+            non_substantive_count += 1
+    
+    if total_responses > 0:
+        nonsubstantive_ratio = non_substantive_count / total_responses
+        if nonsubstantive_ratio > 0.4:  # More than 40% are non-substantive
+            issues.append("Veel niet-inhoudelijke reacties (bijv. alleen 'ok', 'ja')")
+            penalty += 25
+            quality_score *= 0.75
+        elif nonsubstantive_ratio > 0.25:  # More than 25%
+            issues.append("Enkele niet-inhoudelijke reacties")
+            penalty += 15
+            quality_score *= 0.85
+    
+    # Check for average response length (very short average = might be unhelpful)
+    if student_messages:
+        avg_words = sum(len(msg.split()) for msg in student_messages) / len(student_messages)
+        if avg_words < 3:
+            issues.append("Gemiddeld zeer korte reacties (mogelijk niet behulpzaam)")
+            penalty += 15
+            quality_score *= 0.85
+        elif avg_words < 5:
+            issues.append("Korte reacties in het algemeen")
+            penalty += 10
+            quality_score *= 0.9
+    
+    return {
+        "quality_score": max(0.0, min(1.0, quality_score)),
+        "issues": issues,
+        "penalty": penalty
+    }
+
+
+def calculate_confidence_score(metrics, conversation_history=None):
+    """
+    Calculate confidence score (0-100) based on speech patterns AND content quality.
     
     Higher confidence indicators:
     - Normal speaking rate (100-140 WPM)
     - Low filler ratio (< 5%)
     - Balanced pauses (0.3-2.0s)
     - Few long pauses
+    - Helpful, substantive responses
     
     Lower confidence indicators:
     - Very slow or fast speaking rate
     - High filler ratio
     - Extremely short or long pauses
     - Many long pauses
+    - Unhelpful, nonsensical, or very short responses
     
     Args:
         metrics: dict with speech pattern metrics
+        conversation_history: optional conversation text for content quality analysis
         
     Returns:
         dict: {
@@ -310,6 +407,15 @@ def calculate_confidence_score(metrics):
         # Many long pauses: -10 points
         score -= 10
         indicators.append("Veel lange pauzes (wijst op onzekerheid)")
+    
+    # Content quality analysis (max -50 points for very poor content)
+    if conversation_history:
+        content_quality = analyze_content_quality(conversation_history)
+        if content_quality["penalty"] > 0:
+            score -= content_quality["penalty"]
+            indicators.extend(content_quality["issues"])
+            # Also apply quality multiplier to final score
+            score = score * content_quality["quality_score"]
     
     # Ensure score is between 0-100
     score = max(0, min(100, score))
@@ -400,12 +506,13 @@ def generate_icon_states(metrics):
     }
 
 
-def generate_speech_feedback(audio_metadata_list):
+def generate_speech_feedback(audio_metadata_list, conversation_history=None):
     """
     Main function to generate complete speech pattern feedback.
     
     Args:
         audio_metadata_list: List of dicts containing audio metadata for the session
+        conversation_history: Optional conversation text for content quality analysis
         
     Returns:
         dict: Complete feedback including metrics, interpretations, summary, and icon_states
@@ -413,8 +520,8 @@ def generate_speech_feedback(audio_metadata_list):
     # Analyze speech patterns
     metrics = analyze_speech_patterns(audio_metadata_list)
     
-    # Calculate confidence score
-    confidence_result = calculate_confidence_score(metrics)
+    # Calculate confidence score (with content quality analysis if conversation provided)
+    confidence_result = calculate_confidence_score(metrics, conversation_history)
     
     # Interpret metrics into human feedback
     interpretations = interpret_metrics(metrics)

@@ -220,9 +220,9 @@ def generate_feedback():
                 print(f"[DEBUG] Speech analysis enabled. Retrieved {len(audio_metadata_list)} audio metadata entries for user: {username}")
                 
                 if audio_metadata_list:
-                    # Time the speech analysis
+                    # Time the speech analysis (pass conversation history for content quality analysis)
                     start = time.time()
-                    speech_analysis_result = generate_speech_feedback(audio_metadata_list)
+                    speech_analysis_result = generate_speech_feedback(audio_metadata_list, conversation_history=convo)
                     analysis_time = time.time() - start
                     logging.info(f"Speech analysis runtime: {analysis_time:.2f}s")
                     print(f"[DEBUG] Speech analysis completed. Metrics: {speech_analysis_result.get('metrics', {})}")
