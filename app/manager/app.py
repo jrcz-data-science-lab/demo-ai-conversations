@@ -5,6 +5,7 @@ from sqlite import init_db
 from user_management import ensure_user
 from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
+from feedback_formatter import format_student_feedback
 from config import ENABLE_SPEECH_ANALYSIS
 import os
 import time
@@ -190,14 +191,6 @@ def generate_feedback():
             gordon_pattern_result = generate_pattern_feedback(convo)
             print(f"[DEBUG] Gordon pattern analysis completed. Covered {gordon_pattern_result.get('covered_patterns', 0)}/11 patterns")
             print(f"[DEBUG] Gordon pattern summary: {gordon_pattern_result.get('summary', '')[:100]}...")
-            
-            # Add Gordon pattern feedback to conversation feedback
-            pattern_summary = gordon_pattern_result.get("summary", "")
-            if pattern_summary:
-                conversation_feedback += "\n\nGordon Patronen Analyse:\n" + pattern_summary
-                print("[DEBUG] Gordon pattern feedback added to conversation feedback")
-            else:
-                print("[DEBUG] WARNING: Gordon pattern summary is empty!")
         except ImportError as e:
             logging.error(f"Gordon pattern analysis import failed: {e}")
             print(f"[ERROR] Gordon pattern analysis import failed: {e}")
@@ -226,11 +219,6 @@ def generate_feedback():
                     analysis_time = time.time() - start
                     logging.info(f"Speech analysis runtime: {analysis_time:.2f}s")
                     print(f"[DEBUG] Speech analysis completed. Metrics: {speech_analysis_result.get('metrics', {})}")
-                    
-                    # Combine conversation feedback with speech pattern feedback
-                    speech_summary = speech_analysis_result.get("summary", "")
-                    if speech_summary:
-                        conversation_feedback += "\n\nSpeaking Tips:\n" + speech_summary
                 else:
                     print(f"[DEBUG] No audio metadata found for user: {username}. Speech analysis skipped.")
             except Exception as e:
@@ -243,13 +231,24 @@ def generate_feedback():
         else:
             print("[DEBUG] Speech analysis is disabled (ENABLE_SPEECH_ANALYSIS = False)")
         
-        if conversation_feedback:
-            tts_resp = requests.post(TTS_URL, json={"text": conversation_feedback, "voice": voice})
+        # Format all feedback into student-friendly structure
+        if conversation_feedback or gordon_pattern_result or speech_analysis_result:
+            formatted_feedback = format_student_feedback(
+                conversation_feedback, 
+                gordon_pattern_result, 
+                speech_analysis_result
+            )
+            print("[DEBUG] Feedback formatted successfully")
+        else:
+            formatted_feedback = conversation_feedback if conversation_feedback else "Geen feedback beschikbaar."
+        
+        if formatted_feedback:
+            tts_resp = requests.post(TTS_URL, json={"text": formatted_feedback, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
 
             # Prepare response
             response_data = {
-                "response": conversation_feedback,
+                "response": formatted_feedback,  # Use formatted feedback
                 "audio": audio_b64
             }
             
