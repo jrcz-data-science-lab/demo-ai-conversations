@@ -207,6 +207,149 @@ def add_positive_compliments(metrics, existing_feedback):
     return existing_feedback
 
 
+def calculate_confidence_score(metrics):
+    """
+    Calculate confidence score (0-100) based on speech patterns.
+    
+    Higher confidence indicators:
+    - Normal speaking rate (100-140 WPM)
+    - Low filler ratio (< 5%)
+    - Balanced pauses (0.3-2.0s)
+    - Few long pauses
+    
+    Lower confidence indicators:
+    - Very slow or fast speaking rate
+    - High filler ratio
+    - Extremely short or long pauses
+    - Many long pauses
+    
+    Args:
+        metrics: dict with speech pattern metrics
+        
+    Returns:
+        dict: {
+            "score": int (0-100),
+            "level": str ("high", "medium", "low"),
+            "indicators": list of confidence indicators
+        }
+    """
+    filler_ratio = metrics.get("filler_ratio", 0)
+    speech_rate_wpm = metrics.get("speech_rate_wpm", 0)
+    avg_pause = metrics.get("avg_pause", 0)
+    long_pause_count = metrics.get("long_pause_count", 0)
+    total_duration = metrics.get("total_duration", 0)
+    
+    # Calculate long pause ratio (long pauses per minute)
+    if total_duration > 0:
+        long_pause_ratio = (long_pause_count / total_duration) * 60
+    else:
+        long_pause_ratio = 0
+    
+    score = 100  # Start with perfect score
+    indicators = []
+    
+    # Speaking rate scoring (max -30 points)
+    if 100 <= speech_rate_wpm <= 140:
+        # Perfect range: no penalty
+        indicators.append("Goed spreektempo")
+    elif 80 <= speech_rate_wpm < 100 or 140 < speech_rate_wpm <= 160:
+        # Slightly off: -10 points
+        score -= 10
+        indicators.append("Spreektempo iets afwijkend")
+    elif speech_rate_wpm < 80:
+        # Too slow (can indicate nervousness): -20 points
+        score -= 20
+        indicators.append("Zeer langzaam spreektempo (mogelijk onzekerheid)")
+    elif speech_rate_wpm > 160:
+        # Too fast (can indicate nervousness): -20 points
+        score -= 20
+        indicators.append("Zeer snel spreektempo (mogelijk nervositeit)")
+    elif speech_rate_wpm == 0:
+        # No data
+        score -= 15
+    
+    # Filler ratio scoring (max -40 points)
+    if filler_ratio < 3:
+        # Excellent: no penalty
+        indicators.append("Weinig stopwoorden")
+    elif 3 <= filler_ratio < 5:
+        # Good: -5 points
+        score -= 5
+        indicators.append("Enkele stopwoorden")
+    elif 5 <= filler_ratio < 10:
+        # Moderate: -15 points
+        score -= 15
+        indicators.append("Veel stopwoorden (wijst op onzekerheid)")
+    elif filler_ratio >= 10:
+        # High: -30 points
+        score -= 30
+        indicators.append("Zeer veel stopwoorden (wijst op nervositeit)")
+    
+    # Pause scoring (max -20 points)
+    if 0.3 <= avg_pause <= 2.0:
+        # Balanced pauses: no penalty
+        indicators.append("Goede pauzes")
+    elif avg_pause < 0.3:
+        # Too short (rushed): -10 points
+        score -= 10
+        indicators.append("Te korte pauzes (mogelijk haast/onzekerheid)")
+    elif avg_pause > 2.0:
+        # Too long (thinking, uncertainty): -15 points
+        score -= 15
+        indicators.append("Lange pauzes (mogelijk onzekerheid)")
+    
+    # Long pause scoring (max -10 points)
+    if long_pause_ratio < 1:
+        # Few long pauses: no penalty
+        pass
+    elif 1 <= long_pause_ratio < 3:
+        # Some long pauses: -5 points
+        score -= 5
+        indicators.append("Enkele lange pauzes")
+    elif long_pause_ratio >= 3:
+        # Many long pauses: -10 points
+        score -= 10
+        indicators.append("Veel lange pauzes (wijst op onzekerheid)")
+    
+    # Ensure score is between 0-100
+    score = max(0, min(100, score))
+    
+    # Determine confidence level
+    if score >= 75:
+        level = "high"
+    elif score >= 50:
+        level = "medium"
+    else:
+        level = "low"
+    
+    return {
+        "score": round(score),
+        "level": level,
+        "indicators": indicators
+    }
+
+
+def interpret_confidence(confidence_result):
+    """
+    Generate human-readable feedback based on confidence score.
+    
+    Args:
+        confidence_result: dict from calculate_confidence_score()
+        
+    Returns:
+        str: Feedback message about confidence level
+    """
+    score = confidence_result.get("score", 50)
+    level = confidence_result.get("level", "medium")
+    
+    if level == "high":
+        return f"Je sprak met veel zelfvertrouwen (score: {score}/100). Je spreekpatroon was natuurlijk en vloeiend."
+    elif level == "medium":
+        return f"Je sprak met redelijk zelfvertrouwen (score: {score}/100). Er is ruimte voor verbetering in je spreekpatroon."
+    else:
+        return f"Je sprak met weinig zelfvertrouwen (score: {score}/100). Oefen met rustig en duidelijk spreken om je zelfvertrouwen te vergroten."
+
+
 def generate_icon_states(metrics):
     """
     Generate icon state labels for Unreal Engine visualization.
@@ -270,8 +413,15 @@ def generate_speech_feedback(audio_metadata_list):
     # Analyze speech patterns
     metrics = analyze_speech_patterns(audio_metadata_list)
     
+    # Calculate confidence score
+    confidence_result = calculate_confidence_score(metrics)
+    
     # Interpret metrics into human feedback
     interpretations = interpret_metrics(metrics)
+    
+    # Add confidence feedback at the beginning
+    confidence_feedback = interpret_confidence(confidence_result)
+    interpretations.insert(0, confidence_feedback)
     
     # Add positive compliments if metrics are good
     interpretations = add_positive_compliments(metrics, interpretations)
@@ -285,8 +435,12 @@ def generate_speech_feedback(audio_metadata_list):
     # Generate icon states for Unreal Engine
     icon_states = generate_icon_states(metrics)
     
+    # Add confidence to icon states
+    icon_states["confidence"] = confidence_result.get("level", "medium")
+    
     return {
         "metrics": metrics,
+        "confidence": confidence_result,
         "interpretations": interpretations,
         "summary": summary,
         "icon_states": icon_states
