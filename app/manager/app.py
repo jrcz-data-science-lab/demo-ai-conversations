@@ -1,11 +1,20 @@
 from flask import Flask, request, jsonify
 import requests
-from db_utils import append_to_history, read_history, clear_history
+from db_utils import append_to_history, read_history, clear_history, store_audio_metadata, get_all_audio_metadata
 from sqlite import init_db
 from user_management import ensure_user
+from speech_analysis import generate_speech_feedback
+from gordon_patterns import generate_pattern_feedback
+from config import ENABLE_SPEECH_ANALYSIS
 import os
+import time
+import logging
+import base64
 
 app = Flask(__name__)
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 OLLAMA_URL = 'http://ollama:11434/api/generate'
 TTS_URL = 'http://tts:5000/speech'
@@ -48,14 +57,29 @@ def request_handling():
 
     # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
-    transcription_text = stt_resp.json().get("transcript", "")
+    stt_json = stt_resp.json()
+    transcription_text = stt_json.get("transcript", "")
+    transcript_details = stt_json.get("transcript_details", {})
+    
+    # Calculate audio duration from audio data or get from transcript_details
+    audio_duration = transcript_details.get("audio_duration", 0)
+    if not audio_duration:
+        # Fallback: estimate from audio size (rough approximation)
+        try:
+            audio_bytes = base64.b64decode(audio_in)
+            # Assume 16-bit mono WAV at 48000 Hz (from test-requests.py)
+            audio_duration = len(audio_bytes) / (48000 * 2)  # Rough estimate
+        except:
+            audio_duration = 0
 
     if not feedback_request:
         generate_resp = requests.post(GENERATE_URL, json={
             "username": username,
             "transcript": transcription_text,
             "scenario": scenario,
-            "voice": voice_model
+            "voice": voice_model,
+            "transcript_details": transcript_details,
+            "audio_duration": audio_duration
         })
         audio_b64 = generate_resp.json().get("audio")
         return jsonify({"audio": audio_b64})
@@ -65,8 +89,9 @@ def request_handling():
             "scenario": scenario,
             "voice": voice_model
         })
-        audio_b64 = feedback_resp.json().get("audio")
-        return jsonify({"audio": audio_b64})
+        feedback_json = feedback_resp.json()
+        # Return full feedback response including speech_metrics and icon_states
+        return jsonify(feedback_json)
 
 
 @app.route('/generate', methods=['POST'])
@@ -76,12 +101,24 @@ def generate_response():
     transcript = data.get("transcript")
     scenario = data.get("scenario")
     voice = data.get("voice")
+    transcript_details = data.get("transcript_details", {})
+    audio_duration = data.get("audio_duration", 0)
 
     if not username or not transcript or not scenario:
         return jsonify({"error": "Missing username, transcript, or scenario"}), 400
 
     ensure_user(username)
-    append_to_history(username, "Student", transcript)
+    # Store message and get message_id
+    message_id = append_to_history(username, "Student", transcript)
+    
+    # Store audio metadata for speech analysis if enabled
+    if ENABLE_SPEECH_ANALYSIS and transcript_details:
+        word_count = len(transcript.split())
+        store_audio_metadata(username, message_id, audio_duration, transcript_details, word_count)
+        print(f"[DEBUG] Stored audio metadata for user: {username}, message_id: {message_id}, duration: {audio_duration}s, words: {word_count}")
+    elif ENABLE_SPEECH_ANALYSIS and not transcript_details:
+        print(f"[DEBUG] Speech analysis enabled but no transcript_details provided. Skipping metadata storage.")
+    
     convo = read_history(username)
 
     # Dynamically load the prompt from the dictionary
@@ -127,29 +164,121 @@ def generate_feedback():
     convo = read_history(username)
 
     # Dynamically load the feedback prompt from the dictionary
-    feedback_text = prompts.get(f"feedback{scenario}", None)
-    if not feedback_text:
+    feedback_prompt = prompts.get(f"feedback{scenario}", None)
+    if not feedback_prompt:
         return jsonify({"error": f"No feedback prompt for scenario {scenario}"}), 400
 
     # Format the prompt with the conversation history
-    feedback_text = feedback_text.format(convo=convo)
+    feedback_prompt = feedback_prompt.format(convo=convo)
 
     try:
+        # Generate conversation content feedback from Ollama
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": feedback_text, "model": "qwen3:32b", "stream": False, "think": False}
+            json={"prompt": feedback_prompt, "model": "qwen3:32b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
-        feedback_text = ollama_response.json().get("response", "")
+        conversation_feedback = ollama_response.json().get("response", "")
 
-        print(feedback_text)
-        if feedback_text:
-            tts_resp = requests.post(TTS_URL, json={"text": feedback_text, "voice": voice})
+        print("Conversation feedback:", conversation_feedback)
+        
+        # Generate Gordon pattern analysis feedback
+        gordon_pattern_result = None
+        print("[DEBUG] Starting Gordon pattern analysis...")
+        print(f"[DEBUG] Conversation history length: {len(convo) if convo else 0} characters")
+        try:
+            gordon_pattern_result = generate_pattern_feedback(convo)
+            print(f"[DEBUG] Gordon pattern analysis completed. Covered {gordon_pattern_result.get('covered_patterns', 0)}/11 patterns")
+            print(f"[DEBUG] Gordon pattern summary: {gordon_pattern_result.get('summary', '')[:100]}...")
+            
+            # Add Gordon pattern feedback to conversation feedback
+            pattern_summary = gordon_pattern_result.get("summary", "")
+            if pattern_summary:
+                conversation_feedback += "\n\nGordon Patronen Analyse:\n" + pattern_summary
+                print("[DEBUG] Gordon pattern feedback added to conversation feedback")
+            else:
+                print("[DEBUG] WARNING: Gordon pattern summary is empty!")
+        except ImportError as e:
+            logging.error(f"Gordon pattern analysis import failed: {e}")
+            print(f"[ERROR] Gordon pattern analysis import failed: {e}")
+            import traceback
+            traceback.print_exc()
+            gordon_pattern_result = None
+        except Exception as e:
+            logging.error(f"Gordon pattern analysis failed: {e}")
+            print(f"[ERROR] Gordon pattern analysis exception: {e}")
+            import traceback
+            traceback.print_exc()
+            gordon_pattern_result = None
+        
+        # Generate speech pattern feedback if enabled
+        speech_analysis_result = None
+        if ENABLE_SPEECH_ANALYSIS:
+            try:
+                # Retrieve audio metadata for analysis
+                audio_metadata_list = get_all_audio_metadata(username)
+                print(f"[DEBUG] Speech analysis enabled. Retrieved {len(audio_metadata_list)} audio metadata entries for user: {username}")
+                
+                if audio_metadata_list:
+                    # Time the speech analysis
+                    start = time.time()
+                    speech_analysis_result = generate_speech_feedback(audio_metadata_list)
+                    analysis_time = time.time() - start
+                    logging.info(f"Speech analysis runtime: {analysis_time:.2f}s")
+                    print(f"[DEBUG] Speech analysis completed. Metrics: {speech_analysis_result.get('metrics', {})}")
+                    
+                    # Combine conversation feedback with speech pattern feedback
+                    speech_summary = speech_analysis_result.get("summary", "")
+                    if speech_summary:
+                        conversation_feedback += "\n\nSpeaking Tips:\n" + speech_summary
+                else:
+                    print(f"[DEBUG] No audio metadata found for user: {username}. Speech analysis skipped.")
+            except Exception as e:
+                logging.error(f"Speech analysis failed: {e}")
+                print(f"[DEBUG] Speech analysis exception: {e}")
+                import traceback
+                traceback.print_exc()
+                # Continue without speech analysis if it fails
+                speech_analysis_result = None
+        else:
+            print("[DEBUG] Speech analysis is disabled (ENABLE_SPEECH_ANALYSIS = False)")
+        
+        if conversation_feedback:
+            tts_resp = requests.post(TTS_URL, json={"text": conversation_feedback, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
 
+            # Prepare response
+            response_data = {
+                "response": conversation_feedback,
+                "audio": audio_b64
+            }
+            
+            # Add speech metrics and icon states if available
+            if speech_analysis_result:
+                response_data["speech_metrics"] = speech_analysis_result.get("metrics", {})
+                response_data["speech_summary"] = speech_analysis_result.get("summary", "")
+                response_data["icon_states"] = speech_analysis_result.get("icon_states", {})
+                print(f"[DEBUG] Added speech metrics to response: {response_data.get('speech_metrics', {})}")
+                print(f"[DEBUG] Added icon states to response: {response_data.get('icon_states', {})}")
+            else:
+                print("[DEBUG] No speech_analysis_result available. Speech metrics not included in response.")
+            
+            # Add Gordon pattern analysis if available
+            if gordon_pattern_result:
+                response_data["gordon_patterns"] = {
+                    "total_patterns": gordon_pattern_result.get("total_patterns", 11),
+                    "covered_patterns": gordon_pattern_result.get("covered_patterns", 0),
+                    "coverage_percentage": gordon_pattern_result.get("coverage_percentage", 0),
+                    "mentioned_patterns": gordon_pattern_result.get("mentioned_patterns", []),
+                    "summary": gordon_pattern_result.get("summary", "")
+                }
+                print(f"[DEBUG] Added Gordon pattern analysis to response: {response_data.get('gordon_patterns', {})}")
+            else:
+                print("[DEBUG] No gordon_pattern_result available. Gordon pattern analysis not included in response.")
+            
             clear_history(username)
 
-            return jsonify({"response": feedback_text, "audio": audio_b64})
+            return jsonify(response_data)
 
         return jsonify({"error": "Empty feedback response"}), 500
 

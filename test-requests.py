@@ -156,17 +156,67 @@ def main():
         silent_audio = generate_silence()
         silent_b64 = audio_to_base64(silent_audio)
 
-        final_feedback = send_audio(username, silent_b64, scenario, feedback=True)
-
-        if final_feedback:
-            print("=== Feedback Summary ===")
-            try:
-                feedback_audio, sr = base64_to_audio(final_feedback)
-                play_audio(feedback_audio, sr)
-            except Exception:
-                print(final_feedback)
-        else:
-            print("No feedback received from server.")
+        # Send feedback request and get full response
+        data = {
+            "username": username,
+            "audio": silent_b64,
+            "feedback": True,
+            "scenario": scenario
+        }
+        
+        try:
+            response = requests.post(SERVER_URL, json=data, timeout=60)
+            response.raise_for_status()
+            
+            if response.headers.get("Content-Type", "").startswith("application/json"):
+                feedback_json = response.json()
+                audio_field = feedback_json.get("audio")
+                
+                if audio_field:
+                    print("=== Feedback Summary ===")
+                    try:
+                        feedback_audio, sr = base64_to_audio(audio_field)
+                        play_audio(feedback_audio, sr)
+                    except Exception as e:
+                        print(f"Error playing audio: {e}")
+                    
+                    # Display speech metrics and icon states if available
+                    if "speech_metrics" in feedback_json:
+                        print("\n=== Speech Metrics ===")
+                        metrics = feedback_json["speech_metrics"]
+                        print(f"Speech Rate (WPM): {metrics.get('speech_rate_wpm', 'N/A')}")
+                        print(f"Average Pause: {metrics.get('avg_pause', 'N/A')}s")
+                        print(f"Filler Count: {metrics.get('filler_count', 'N/A')}")
+                        print(f"Filler Ratio: {metrics.get('filler_ratio', 'N/A')}%")
+                        
+                    if "icon_states" in feedback_json:
+                        print("\n=== Icon States (for Unreal Engine) ===")
+                        icons = feedback_json["icon_states"]
+                        print(f"Speech Rate: {icons.get('speech_rate', 'N/A')}")
+                        print(f"Pauses: {icons.get('pauses', 'N/A')}")
+                        print(f"Fillers: {icons.get('fillers', 'N/A')}")
+                        print(f"Overall: {icons.get('overall', 'N/A')}")
+                    
+                    if "speech_summary" in feedback_json:
+                        print(f"\n=== Speaking Tips Summary ===\n{feedback_json['speech_summary']}")
+                    
+                    # Display Gordon pattern analysis if available
+                    if "gordon_patterns" in feedback_json:
+                        print("\n=== Gordon Pattern Analysis ===")
+                        patterns = feedback_json["gordon_patterns"]
+                        print(f"Covered Patterns: {patterns.get('covered_patterns', 0)}/11")
+                        print(f"Coverage Percentage: {patterns.get('coverage_percentage', 0)}%")
+                        if patterns.get("mentioned_patterns"):
+                            print(f"Mentioned Patterns: {patterns.get('mentioned_patterns', [])}")
+                        if patterns.get("summary"):
+                            print(f"\n{patterns.get('summary', '')}")
+                else:
+                    print("No audio in feedback response.")
+                    print("Full response:", feedback_json)
+            else:
+                print("Unexpected response format:", response.text[:200])
+        except Exception as e:
+            print(f"Error requesting feedback: {e}")
 
         print("\nGoodbye!")
         sys.exit(0)
