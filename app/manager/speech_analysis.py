@@ -240,57 +240,117 @@ def analyze_content_quality(conversation_history):
     penalty = 0
     quality_score = 1.0
     
-    # Check for very short responses (might indicate unhelpful/nonsensical)
-    very_short_responses = 0
     total_responses = len(student_messages)
+    
+    # Check for dismissive/unhelpful phrases
+    dismissive_phrases = [
+        "cannot help", "can't help", "kan niet helpen", "kan je niet helpen",
+        "bye", "bye bye", "doei", "dag", "tot ziens",
+        "sorry but", "sorry, but", "sorry maar",
+        "not my problem", "niet mijn probleem",
+        "i don't know", "ik weet het niet", "geen idee"
+    ]
+    dismissive_count = 0
+    
+    for msg in student_messages:
+        msg_lower = msg.lower()
+        if any(phrase in msg_lower for phrase in dismissive_phrases):
+            dismissive_count += 1
+    
+    if total_responses > 0:
+        dismissive_ratio = dismissive_count / total_responses
+        if dismissive_ratio > 0.3:  # More than 30% are dismissive
+            issues.append("Veel afwijzende/niet-behulpzame reacties")
+            penalty += 35
+            quality_score *= 0.65
+        elif dismissive_ratio > 0.15:  # More than 15%
+            issues.append("Enkele afwijzende reacties (niet behulpzaam)")
+            penalty += 25
+            quality_score *= 0.75
+        elif dismissive_count > 0:
+            issues.append("Afwijzende reactie gedetecteerd (niet behulpzaam)")
+            penalty += 20
+            quality_score *= 0.8
+    
+    # Check for very short responses (might indicate unhelpful/nonsensical)
+    very_short_responses = 0  # 1-3 words
+    short_responses = 0  # 4-6 words
     
     for msg in student_messages:
         word_count = len(msg.split())
-        # Responses with 1-3 words are likely unhelpful
         if word_count <= 3:
             very_short_responses += 1
+        elif word_count <= 6:
+            short_responses += 1
     
     if total_responses > 0:
-        short_ratio = very_short_responses / total_responses
-        if short_ratio > 0.5:  # More than 50% are very short
-            issues.append("Veel te korte reacties (mogelijk niet behulpzaam)")
+        very_short_ratio = very_short_responses / total_responses
+        short_ratio = (very_short_responses + short_responses) / total_responses
+        
+        if very_short_ratio > 0.4:  # More than 40% are very short (1-3 words)
+            issues.append("Veel te korte reacties (1-3 woorden, mogelijk niet behulpzaam)")
+            penalty += 25
+            quality_score *= 0.75
+        elif very_short_ratio > 0.25:  # More than 25% are very short
+            issues.append("Veel zeer korte reacties")
+            penalty += 15
+            quality_score *= 0.85
+        elif short_ratio > 0.6:  # More than 60% are short (1-6 words)
+            issues.append("Meerderheid van reacties is kort (mogelijk niet behulpzaam)")
             penalty += 20
             quality_score *= 0.8
-        elif short_ratio > 0.3:  # More than 30% are very short
-            issues.append("Veel korte reacties")
-            penalty += 10
-            quality_score *= 0.9
     
     # Check for repetitive/nonsensical patterns
-    # Count single-word responses like "ok", "ja", "nee", "uh"
-    non_substantive_words = ["ok", "oké", "ja", "nee", "uh", "um", "euh", "ja", "okay", "okey"]
+    non_substantive_words = ["ok", "oké", "ja", "nee", "uh", "um", "euh", "okay", "okey", "yes", "no"]
     non_substantive_count = 0
     
     for msg in student_messages:
         words = msg.lower().split()
-        if len(words) <= 2 and any(word.strip(".,!?") in non_substantive_words for word in words):
-            non_substantive_count += 1
+        cleaned_words = [w.strip(".,!?:;") for w in words]
+        # Check if response is mostly non-substantive words
+        if len(cleaned_words) <= 4:
+            non_substantive_in_msg = [w for w in cleaned_words if w in non_substantive_words]
+            if len(cleaned_words) <= 2 or (len(non_substantive_in_msg) > 0 and len(non_substantive_in_msg) / len(cleaned_words) > 0.5):
+                non_substantive_count += 1
     
     if total_responses > 0:
         nonsubstantive_ratio = non_substantive_count / total_responses
-        if nonsubstantive_ratio > 0.4:  # More than 40% are non-substantive
+        if nonsubstantive_ratio > 0.3:  # More than 30% are non-substantive
             issues.append("Veel niet-inhoudelijke reacties (bijv. alleen 'ok', 'ja')")
-            penalty += 25
-            quality_score *= 0.75
-        elif nonsubstantive_ratio > 0.25:  # More than 25%
+            penalty += 30
+            quality_score *= 0.7
+        elif nonsubstantive_ratio > 0.2:  # More than 20%
             issues.append("Enkele niet-inhoudelijke reacties")
-            penalty += 15
-            quality_score *= 0.85
+            penalty += 20
+            quality_score *= 0.8
     
     # Check for average response length (very short average = might be unhelpful)
     if student_messages:
         avg_words = sum(len(msg.split()) for msg in student_messages) / len(student_messages)
-        if avg_words < 3:
+        if avg_words < 4:
             issues.append("Gemiddeld zeer korte reacties (mogelijk niet behulpzaam)")
-            penalty += 15
-            quality_score *= 0.85
-        elif avg_words < 5:
+            penalty += 20
+            quality_score *= 0.8
+        elif avg_words < 7:
             issues.append("Korte reacties in het algemeen")
+            penalty += 10
+            quality_score *= 0.9
+    
+    # Check for lack of questions (unhelpful students don't ask questions)
+    question_words = ["wat", "hoe", "waar", "waarom", "wie", "wanneer", "what", "how", "where", "why", "who", "when"]
+    questions_count = 0
+    for msg in student_messages:
+        if any(msg.lower().startswith(q + " ") or " " + q + " " in msg.lower() for q in question_words) or "?" in msg:
+            questions_count += 1
+    
+    if total_responses > 0:
+        question_ratio = questions_count / total_responses
+        if question_ratio < 0.1:  # Less than 10% are questions (very passive/unhelpful)
+            issues.append("Zeer weinig vragen gesteld (mogelijk niet behulpzaam)")
+            penalty += 20
+            quality_score *= 0.8
+        elif question_ratio < 0.2:  # Less than 20%
+            issues.append("Weinig vragen gesteld")
             penalty += 10
             quality_score *= 0.9
     
@@ -408,14 +468,19 @@ def calculate_confidence_score(metrics, conversation_history=None):
         score -= 10
         indicators.append("Veel lange pauzes (wijst op onzekerheid)")
     
-    # Content quality analysis (max -50 points for very poor content)
+    # Content quality analysis (max -50+ points for very poor content)
     if conversation_history:
         content_quality = analyze_content_quality(conversation_history)
+        print(f"[DEBUG] Content quality analysis: penalty={content_quality['penalty']}, issues={content_quality['issues']}")
         if content_quality["penalty"] > 0:
+            original_score = score
             score -= content_quality["penalty"]
             indicators.extend(content_quality["issues"])
             # Also apply quality multiplier to final score
             score = score * content_quality["quality_score"]
+            print(f"[DEBUG] Confidence score adjusted: {original_score} -> {score} (penalty: -{content_quality['penalty']}, multiplier: {content_quality['quality_score']})")
+        else:
+            print("[DEBUG] Content quality analysis: No penalties applied")
     
     # Ensure score is between 0-100
     score = max(0, min(100, score))
