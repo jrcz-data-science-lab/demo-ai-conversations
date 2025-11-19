@@ -113,9 +113,39 @@ def build_feedback_metadata(gordon_result: Optional[Dict], speech_result: Option
     """
     Compile reusable metadata that can power prompt generation and UI rendering.
     """
-    metrics = (speech_result or {}).get("metrics", {}) or {}
-    confidence = (speech_result or {}).get("confidence", {}) or {}
+    gordon_result = gordon_result or {}
+    speech_result = speech_result or {}
+    metrics = speech_result.get("metrics", {}) or {}
+    confidence = speech_result.get("confidence", {}) or {}
     pause_distribution = normalize_pause_distribution(metrics.get("pause_distribution"))
+
+    pattern_details = gordon_result.get("pattern_details", {}) or {}
+
+    def _resolve_pattern_label(pattern_entry: Any) -> str:
+        """Convert pattern IDs to human-readable names."""
+        if isinstance(pattern_entry, dict):
+            name = pattern_entry.get("name")
+            if name:
+                return str(name)
+        if isinstance(pattern_entry, int):
+            detail = pattern_details.get(str(pattern_entry))
+            if detail and detail.get("name"):
+                return str(detail["name"])
+            return str(pattern_entry)
+        if isinstance(pattern_entry, str):
+            # Some payloads send IDs as strings, e.g. "3"
+            if pattern_entry.isdigit():
+                detail = pattern_details.get(pattern_entry)
+                if detail and detail.get("name"):
+                    return str(detail["name"])
+            return pattern_entry
+        return str(pattern_entry)
+
+    mentioned_patterns_raw = gordon_result.get("mentioned_patterns", []) or []
+    mentioned_pattern_labels = [_resolve_pattern_label(p) for p in mentioned_patterns_raw]
+
+    missing_patterns_raw = gordon_result.get("missing_patterns", []) or []
+    missing_pattern_labels = [_resolve_pattern_label(p) for p in missing_patterns_raw]
 
     metadata = {
         "speech_rate_wpm": round(metrics.get("speech_rate_wpm", 0)),
@@ -130,12 +160,12 @@ def build_feedback_metadata(gordon_result: Optional[Dict], speech_result: Option
         "confidence_indicators": confidence.get("indicators", []),
         "speech_summary": scrub_text((speech_result or {}).get("summary")),
         "emotion": infer_emotion((speech_result or {}).get("emotion"), metrics),
-        "coverage_percentage": round((gordon_result or {}).get("coverage_percentage", 0)),
-        "patterns_mentioned": (gordon_result or {}).get("mentioned_patterns", []),
-        "patterns_missing": (gordon_result or {}).get("missing_patterns", []),
-        "covered_patterns": (gordon_result or {}).get("covered_patterns", 0),
-        "total_patterns": (gordon_result or {}).get("total_patterns", 11),
-        "gordon_summary": scrub_text((gordon_result or {}).get("summary")),
+        "coverage_percentage": round(gordon_result.get("coverage_percentage", 0)),
+        "patterns_mentioned": mentioned_pattern_labels,
+        "patterns_missing": missing_pattern_labels,
+        "covered_patterns": gordon_result.get("covered_patterns", 0),
+        "total_patterns": gordon_result.get("total_patterns", 11),
+        "gordon_summary": scrub_text(gordon_result.get("summary")),
     }
 
     metadata["prosody_score"] = compute_prosody_score(metrics, metadata["emotion"])
