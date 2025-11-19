@@ -456,31 +456,59 @@ def build_lecturer_notes_section(notes: Optional[str]) -> Optional[str]:
 def format_student_feedback(conversation_feedback, gordon_result, speech_result):
     """
     Format all feedback components into a clear, student-friendly structure.
+    Returns a dict so routes can pass only the plain text to TTS while still exposing
+    structured metadata to the client.
     """
     metadata = build_feedback_metadata(gordon_result, speech_result)
     llm_prompt = metadata.get("llm_prompt") or build_llm_prompt(metadata)
     metadata["llm_prompt"] = llm_prompt
 
-    sections: List[str] = []
-    sections.append(build_summary_section(metadata))
+    summary_section = build_summary_section(metadata)
 
     llm_sections, lecturer_notes = sanitize_llm_output(conversation_feedback, metadata)
     llm_block = ["=== Gespreksvaardigheden (LLM) ==="]
     for header in LLM_SECTION_TITLES:
         llm_block.append(f"**{header}**")
         llm_block.append(llm_sections[header])
-    sections.append("\n\n".join(llm_block))
+    llm_section_text = "\n\n".join(llm_block)
 
-    speech_section = build_speech_section(speech_result, metadata)
-    if speech_section:
-        sections.append(speech_section)
+    speech_section_text = build_speech_section(speech_result, metadata)
+    gordon_section_text = build_gordon_section(metadata)
+    action_items_text = build_action_items(metadata)
+    lecturer_section_text = build_lecturer_notes_section(lecturer_notes)
 
-    sections.append(build_gordon_section(metadata))
-    sections.append(build_action_items(metadata))
+    ordered_sections: List[str] = [
+        summary_section,
+        llm_section_text,
+        speech_section_text,
+        gordon_section_text,
+        action_items_text,
+        lecturer_section_text,
+    ]
 
-    lecturer_section = build_lecturer_notes_section(lecturer_notes)
-    if lecturer_section:
-        sections.append(lecturer_section)
+    formatted_feedback = "\n\n".join(filter(None, ordered_sections))
 
-    formatted_feedback = "\n\n".join(filter(None, sections))
-    return formatted_feedback
+    structured_sections: Dict[str, Any] = {
+        "summary": summary_section,
+        "llm": {
+            "title": "=== Gespreksvaardigheden (LLM) ===",
+            "sections": llm_sections,
+        },
+        "gordon": gordon_section_text,
+        "action_items": action_items_text,
+    }
+
+    if speech_section_text:
+        structured_sections["speech"] = speech_section_text
+    if lecturer_section_text:
+        structured_sections["lecturer_notes"] = lecturer_section_text
+
+    structured_payload = {
+        "sections": structured_sections,
+        "metadata": metadata,
+    }
+
+    return {
+        "text": formatted_feedback,
+        "structured": structured_payload,
+    }

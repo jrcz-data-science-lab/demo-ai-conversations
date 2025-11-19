@@ -234,22 +234,33 @@ def generate_feedback():
         # Format all feedback into student-friendly structure
         if conversation_feedback or gordon_pattern_result or speech_analysis_result:
             formatted_feedback = format_student_feedback(
-                conversation_feedback, 
-                gordon_pattern_result, 
+                conversation_feedback,
+                gordon_pattern_result,
                 speech_analysis_result
             )
             print("[DEBUG] Feedback formatted successfully")
         else:
-            formatted_feedback = conversation_feedback if conversation_feedback else "Geen feedback beschikbaar."
+            fallback_text = conversation_feedback if conversation_feedback else "Geen feedback beschikbaar."
+            formatted_feedback = {
+                "text": fallback_text,
+                "structured": {
+                    "sections": {"summary": fallback_text},
+                    "metadata": {}
+                }
+            }
         
-        if formatted_feedback:
-            tts_resp = requests.post(TTS_URL, json={"text": formatted_feedback, "voice": voice})
+        feedback_text = (formatted_feedback or {}).get("text")
+        structured_feedback = (formatted_feedback or {}).get("structured", {})
+
+        if feedback_text:
+            tts_resp = requests.post(TTS_URL, json={"text": feedback_text, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
 
             # Prepare response
             response_data = {
-                "response": formatted_feedback,  # Use formatted feedback
-                "audio": audio_b64
+                "response": feedback_text,
+                "audio": audio_b64,
+                "structured_feedback": structured_feedback
             }
             
             # Add speech metrics and icon states if available
