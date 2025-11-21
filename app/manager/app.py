@@ -14,6 +14,18 @@ import base64
 
 app = Flask(__name__)
 
+
+def strip_avatar_prefix(text: str) -> str:
+    """Remove leading 'Avatar:' label that the LLM sometimes echoes."""
+    if not isinstance(text, str):
+        return text
+    cleaned = text.lstrip()
+    prefixes = ("Avatar:", "avatar:", "Avatar -", "avatar -")
+    for prefix in prefixes:
+        if cleaned.startswith(prefix):
+            return cleaned[len(prefix):].lstrip()
+    return cleaned
+
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
@@ -138,6 +150,7 @@ def generate_response():
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
+        response_text = strip_avatar_prefix(response_text)
         print(response_text)
 
         if response_text:
