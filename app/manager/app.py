@@ -7,6 +7,7 @@ from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
 from feedback_formatter import format_student_feedback
 from config import ENABLE_SPEECH_ANALYSIS
+from emailsender import send_email
 import os
 import time
 import logging
@@ -261,6 +262,15 @@ def generate_feedback():
                     "metadata": {}
                 }
             }
+
+        # Call send_email and store the return value
+        email_sent = send_email(username, formatted_feedback)
+
+        # Based on the return value, you can take actions
+        if email_sent:
+            print("The email was sent successfully!")
+        else:
+            print("There was an issue sending the email.")
         
         feedback_text = (formatted_feedback or {}).get("text")
         structured_feedback = (formatted_feedback or {}).get("structured", {})

@@ -56,6 +56,10 @@ services:
       - ai_pipeline_net
     environment:
       - PYTHONUNBUFFERED=1
+      - EMAIL=${EMAIL}
+      - EMAIL_PASSWORD=${EMAIL_PASSWORD}
+      - EMAIL_HOST=${EMAIL_HOST}
+      - EMAIL_PORT=${EMAIL_PORT}
 
 networks:
   ai_pipeline_net:
