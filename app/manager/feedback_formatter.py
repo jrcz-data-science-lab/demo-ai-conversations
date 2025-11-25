@@ -64,6 +64,13 @@ PATTERN_QUESTIONS = {
     "Waarden": "Zijn er overtuigingen of waarden die we moeten meenemen in uw zorg?",
 }
 
+# Overall appraisal labels to make tone realistic instead of overly positive.
+ASSESSMENT_ICONS = {
+    "high": "✅",
+    "medium": "⚠️",
+    "low": "❌",
+}
+
 # Heuristics to spot (perceived) understanding, paraphrasing, and confusion.
 UNDERSTANDING_CUES = [
     "ik begrijp",
@@ -338,6 +345,7 @@ Je bent een professionele beoordelaar van gespreksvaardigheden voor HBO-V studen
 Gebruik ALTIJD de onderstaande structuur en schrijf in duidelijk, vriendelijk en professioneel Nederlands.
 Verwijs naar de METRICS (onderaan) om je feedback concreet en specifiek te maken.
 Vermijd vage opmerkingen, wees feitelijk, empathisch en gericht op leerdoelen.
+Wees realistisch: bij lage dekking of lage prosodie/vertrouwen moet de toon kritischer zijn. Geef in dat geval maximaal 1-2 complimenten en meer verbeterpunten.
 
 =====================================
 ### 1. Complimenten
@@ -464,6 +472,11 @@ def sanitize_llm_output(conversation_feedback, metadata: Dict[str, Any]) -> Tupl
     for header in LLM_SECTION_TITLES:
         if not sections[header]:
             sections[header] = generate_llm_section_default(header, metadata)
+        elif header == "Complimenten":
+            # Clamp complimenten if coverage or prosody are weak.
+            if metadata["coverage_percentage"] < 40 or metadata["prosody_score"] < THRESHOLDS["prosody"]["ok"]:
+                compliments = sections[header].split("\n")
+                sections[header] = "\n".join(compliments[:2]).strip()
 
     return sections, scrub_text(lecturer_notes)
 
@@ -473,6 +486,31 @@ def build_summary_section(metadata: Dict[str, Any]) -> str:
     Create the top summary with badges and quick metrics.
     """
     lines = ["=== Samenvatting ==="]
+
+    # Overall verdict based on coverage, prosody, and comprehension check.
+    coverage = metadata["coverage_percentage"]
+    prosody = metadata["prosody_score"]
+    gap_result = metadata.get("understanding_gap") or {}
+    has_gap = gap_result.get("gap_detected")
+
+    if coverage >= 70 and prosody >= THRESHOLDS["prosody"]["good"] and not has_gap:
+        overall_level = "high"
+        overall_reason = "Goede dekking, sterke prosodie en geen duidelijke begripskloof."
+    elif coverage >= 40 and prosody >= THRESHOLDS["prosody"]["ok"]:
+        overall_level = "medium"
+        overall_reason = "Redelijke dekking of prosodie, maar er is ruimte voor verdieping of scherpere opvolging."
+    else:
+        overall_level = "low"
+        reason_parts = []
+        if coverage < 40:
+            reason_parts.append(f"lage dekking ({coverage}%)")
+        if prosody < THRESHOLDS["prosody"]["ok"]:
+            reason_parts.append(f"prosodie {prosody}/100")
+        if has_gap:
+            reason_parts.append("begrip niet overtuigend getoond")
+        overall_reason = "; ".join(reason_parts) if reason_parts else "verbeterpunten vereist."
+
+    lines.append(f"- {ASSESSMENT_ICONS[overall_level]} Beoordeling: {overall_reason}")
     confidence_score = metadata["confidence_score"]
     confidence_level = metadata["confidence_level"]
 
