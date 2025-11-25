@@ -1114,11 +1114,13 @@ def build_summary_section(
             lines.append(f"- ❌ You covered only {covered_patterns} out of 11 patterns; vul de ontbrekende patronen in met gerichte vragen.")
 
     gap_result = metadata.get("understanding_gap") or {}
-    if gap_result.get("student_messages", 0) == 0 and not analysis_examples.get("understanding_examples"):
+    understanding_examples = analysis_examples.get("understanding_examples") or []
+
+    if gap_result.get("student_messages", 0) == 0 and not understanding_examples:
         lines.append("- ℹ️ Begripscontrole: geen uitspraken om begrip te toetsen.")
     elif gap_result.get("gap_detected") or analysis_flags.get("comprehension_gap"):
         # Rule 3: Quote exact phrases and give explicit directive
-        gap_examples = analysis_examples.get("understanding_examples") or gap_result.get("exact_phrases", [])
+        gap_examples = understanding_examples or gap_result.get("exact_phrases", [])
         if gap_examples:
             phrases_quoted = "', '".join(set(gap_examples[:3]))
             lines.append(f"- ❌ Begripscontrole: '{phrases_quoted}' zonder parafrase binnen 2 zinnen; 'ik begrijp het' is onvoldoende. Vat samen wat u hoort of stel een checkvraag.")
@@ -1126,6 +1128,11 @@ def build_summary_section(
             lines.append(f"- ❌ Begripscontrole: {gap_result.get('summary', 'Begrip niet overtuigend getoond.')}")
     else:
         lines.append("- ✅ Begripscontrole: parafrases en vervolgvragen maakten je begrip overtuigend.")
+
+    # Always surface the exact begrip-claims so the student sees what was said
+    if understanding_examples:
+        phrases_quoted = "', '".join(set(understanding_examples[:3]))
+        lines.append(f"- Gehoorde begrip-zinnen: '{phrases_quoted}'. Gebruik ze alleen met directe parafrase/checkvraag.")
 
     # Rule 4: List missing patterns for low coverage
     missing_patterns = metadata.get("patterns_missing") or []
@@ -1293,6 +1300,7 @@ def build_understanding_section(
     analysis_flags = analysis_block.get("flags", {})
     analysis_examples = analysis_block.get("extracted_examples", {})
     analysis_phrases = analysis_block.get("exact_phrases_used", {})
+    understanding_examples = analysis_examples.get("understanding_examples") or []
 
     if (not gap_result or gap_result.get("student_messages", 0) == 0) and not analysis_examples.get("understanding_examples"):
         lines.append("- Geen studentuitspraken beschikbaar om begrip te toetsen.")
@@ -1304,9 +1312,8 @@ def build_understanding_section(
     )
 
     if analysis_flags.get("comprehension_gap"):
-        understanding_examples = analysis_examples.get("understanding_examples") or analysis_phrases.get("understanding_phrases", [])
         unique_examples = []
-        for ex in understanding_examples:
+        for ex in understanding_examples or analysis_phrases.get("understanding_phrases", []):
             if ex not in unique_examples:
                 unique_examples.append(ex)
         if unique_examples:
