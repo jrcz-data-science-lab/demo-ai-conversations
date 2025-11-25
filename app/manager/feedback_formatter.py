@@ -36,6 +36,44 @@ ADDRESS_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Heuristics to spot (perceived) understanding, paraphrasing, and confusion.
+UNDERSTANDING_CUES = [
+    "ik begrijp",
+    "ik snap",
+    "als ik het goed begrijp",
+    "als ik u goed begrijp",
+    "als ik je goed begrijp",
+    "dus u",
+    "dus je",
+    "dus jij",
+    "duidelijk",
+    "ok",
+    "oke",
+    "klinkt duidelijk",
+]
+PARAPHRASE_CUES = [
+    "je geeft aan",
+    "u geeft aan",
+    "wat ik hoor",
+    "dus u zegt",
+    "dus je zegt",
+    "met andere woorden",
+    "samenvattend",
+    "als ik het goed samenvat",
+    "kortom",
+]
+CONFUSION_CUES = [
+    "ik weet niet",
+    "niet zeker",
+    "twijfel",
+    "lastig",
+    "uh",
+    "uhm",
+    "hmm",
+    "even denken",
+    "ik ben er niet zeker van",
+]
+
 
 def scrub_text(text: Optional[str]) -> str:
     """
@@ -49,6 +87,82 @@ def scrub_text(text: Optional[str]) -> str:
     cleaned = ADDRESS_PATTERN.sub("[adres verwijderd]", cleaned)
     cleaned = re.sub(r"\b\d{9}\b", "[id verwijderd]", cleaned)
     return cleaned.strip()
+
+
+def extract_student_messages(conversation_history: Optional[str]) -> List[str]:
+    """
+    Collect all student utterances from the conversation log.
+    """
+    if not conversation_history:
+        return []
+
+    messages: List[str] = []
+    for line in conversation_history.splitlines():
+        if line.strip().startswith("Student:"):
+            message = line.split("Student:", 1)[1].strip()
+            if message:
+                messages.append(message)
+    return messages
+
+
+def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Spot gaps between perceived en daadwerkelijke begrip.
+    """
+    student_messages = extract_student_messages(conversation_history)
+    if not student_messages:
+        return {
+            "gap_detected": False,
+            "reasons": [],
+            "summary": "Geen studentuitspraken beschikbaar om begrip te toetsen.",
+            "student_messages": 0,
+            "understanding_statements": 0,
+            "paraphrase_attempts": 0,
+            "followup_questions": 0,
+            "confusion_signals": 0,
+        }
+
+    lower_messages = [msg.lower() for msg in student_messages]
+
+    def count_cues(cues: List[str]) -> int:
+        return sum(1 for msg in lower_messages for cue in cues if cue in msg)
+
+    understanding_hits = count_cues(UNDERSTANDING_CUES)
+    paraphrase_hits = count_cues(PARAPHRASE_CUES)
+    confusion_hits = count_cues(CONFUSION_CUES)
+    question_count = sum(1 for msg in student_messages if "?" in msg)
+
+    coverage = metadata.get("coverage_percentage", 0)
+    missing_patterns = metadata.get("patterns_missing") or []
+
+    gap_reasons: List[str] = []
+
+    if understanding_hits and question_count < max(1, understanding_hits):
+        gap_reasons.append("Na het uitspreken van begrip volgden weinig verdiepende of verifiërende vragen.")
+    if understanding_hits and paraphrase_hits == 0:
+        gap_reasons.append("Er werd geen parafrase gebruikt om te toetsen of het begrip echt klopte.")
+    if coverage < 60 and understanding_hits:
+        focus = ", ".join(missing_patterns[:2]) if missing_patterns else "belangrijke patronen"
+        gap_reasons.append(f"Je gaf aan dat je het begreep, maar liet nog belangrijke patronen onbesproken ({focus}).")
+    if confusion_hits:
+        gap_reasons.append("Er zijn signalen van twijfel of verwarring in je antwoorden.")
+
+    gap_detected = len(gap_reasons) > 0
+    if gap_detected:
+        summary = " ".join(gap_reasons)
+    else:
+        summary = "Je parafraseerde of stelde vervolgvragen waardoor je begrip aannemelijk is."
+
+    return {
+        "gap_detected": gap_detected,
+        "reasons": gap_reasons,
+        "summary": summary,
+        "student_messages": len(student_messages),
+        "understanding_statements": understanding_hits,
+        "paraphrase_attempts": paraphrase_hits,
+        "followup_questions": question_count,
+        "confusion_signals": confusion_hits,
+    }
 
 
 def normalize_pause_distribution(raw_distribution: Optional[Dict[str, float]]) -> Dict[str, float]:
@@ -357,6 +471,14 @@ def build_summary_section(metadata: Dict[str, Any]) -> str:
     else:
         lines.append(f"- ❌ Gordon patronen: slechts {coverage}% dekking, plan bewuste vervolgvragen.")
 
+    gap_result = metadata.get("understanding_gap") or {}
+    if gap_result.get("student_messages", 0) == 0:
+        lines.append("- ℹ️ Begripscontrole: geen uitspraken om begrip te toetsen.")
+    elif gap_result.get("gap_detected"):
+        lines.append(f"- ❌ Begripscontrole: {gap_result.get('summary', 'Begrip niet overtuigend getoond.')}")
+    else:
+        lines.append("- ✅ Begripscontrole: parafrases en vervolgvragen maakten je begrip overtuigend.")
+
     lines.append(
         f"- Metrics: {metadata['speech_rate_wpm']} wpm | tempo-variatie {metadata['tempo_variation']}% | "
         f"pauze {metadata['pause_avg']}s | prosodie {metadata['prosody_score']}/100 | emotie {metadata['emotion']}."
@@ -400,6 +522,30 @@ def build_speech_section(speech_result: Optional[Dict], metadata: Dict[str, Any]
     return "\n".join(lines)
 
 
+def build_understanding_section(gap_result: Dict[str, Any]) -> str:
+    """
+    Summarize gaps between uitgesproken en aangetoond begrip.
+    """
+    lines = ["=== Begripstoetsing ==="]
+    if not gap_result or gap_result.get("student_messages", 0) == 0:
+        lines.append("- Geen studentuitspraken beschikbaar om begrip te toetsen.")
+        return "\n".join(lines)
+
+    lines.append(
+        f"- Uitgesproken begrip: {gap_result['understanding_statements']} | parafrases: "
+        f"{gap_result['paraphrase_attempts']} | vervolgvragen: {gap_result['followup_questions']}."
+    )
+
+    if gap_result.get("gap_detected"):
+        lines.append(f"- Signaal dat begrip overschat is: {gap_result.get('summary', '')}")
+        for reason in gap_result.get("reasons", [])[:2]:
+            lines.append(f"- {reason}")
+    else:
+        lines.append("- Geen duidelijke kloof tussen gedacht en getoond begrip; blijf parafraseren en doorvragen.")
+
+    return "\n".join(lines)
+
+
 def build_gordon_section(metadata: Dict[str, Any]) -> str:
     """
     Describe Gordon pattern coverage and missing aspects.
@@ -434,6 +580,7 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     hesitations = metadata["hesitation_markers"]
     prosody = metadata["prosody_score"]
     volume_stability = metadata["volume_stability"]
+    gap_result = metadata.get("understanding_gap") or {}
 
     if tempo_variation > THRESHOLDS["tempo_variation"]["high"]:
         actions.append("Probeer rustiger en consistenter te spreken; stabiliseer je tempo per vraag.")
@@ -456,6 +603,8 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     if metadata["coverage_percentage"] < 60:
         missing = ", ".join(metadata["patterns_missing"][:3])
         actions.append(f"Plan vragen rond ontbrekende patronen ({missing}) om vollediger te screenen.")
+    if gap_result.get("gap_detected"):
+        actions.append("Check je begrip actief: vat kort samen wat de patiënt zei en stel daarna een open vervolgvraag om te bevestigen.")
 
     actions = list(dict.fromkeys(actions))  # Deduplicate preserving order
     if len(actions) < 3:
@@ -483,15 +632,25 @@ def build_lecturer_notes_section(notes: Optional[str]) -> Optional[str]:
     return "=== Optionele Docentnotities ===\n\n*" + scrub_text(notes) + "*"
 
 
-def format_student_feedback(conversation_feedback, gordon_result, speech_result):
+def format_student_feedback(
+    conversation_feedback,
+    gordon_result,
+    speech_result,
+    conversation_history: Optional[str] = None,
+):
     """
     Format all feedback components into a clear, student-friendly structure.
     Returns a dict so routes can pass only the plain text to TTS while still exposing
     structured metadata to the client.
     """
+    # Build metadata first so we can measure coverage and delivery.
     metadata = build_feedback_metadata(gordon_result, speech_result)
     llm_prompt = metadata.get("llm_prompt") or build_llm_prompt(metadata)
     metadata["llm_prompt"] = llm_prompt
+
+    # Detect gaps tussen uitgesproken en getoond begrip.
+    gap_result = analyze_understanding_gaps(conversation_history, metadata)
+    metadata["understanding_gap"] = gap_result
 
     summary_section = build_summary_section(metadata)
 
@@ -503,6 +662,7 @@ def format_student_feedback(conversation_feedback, gordon_result, speech_result)
     llm_section_text = "\n\n".join(llm_block)
 
     speech_section_text = build_speech_section(speech_result, metadata)
+    understanding_section_text = build_understanding_section(gap_result)
     gordon_section_text = build_gordon_section(metadata)
     action_items_text = build_action_items(metadata)
     lecturer_section_text = build_lecturer_notes_section(lecturer_notes)
@@ -511,6 +671,7 @@ def format_student_feedback(conversation_feedback, gordon_result, speech_result)
         summary_section,
         llm_section_text,
         speech_section_text,
+        understanding_section_text,
         gordon_section_text,
         action_items_text,
         lecturer_section_text,
@@ -524,6 +685,7 @@ def format_student_feedback(conversation_feedback, gordon_result, speech_result)
             "title": "=== Gespreksvaardigheden (LLM) ===",
             "sections": llm_sections,
         },
+        "understanding_gap": understanding_section_text,
         "gordon": gordon_section_text,
         "action_items": action_items_text,
     }

@@ -249,7 +249,8 @@ def generate_feedback():
             formatted_feedback = format_student_feedback(
                 conversation_feedback,
                 gordon_pattern_result,
-                speech_analysis_result
+                speech_analysis_result,
+                conversation_history=convo
             )
             print("[DEBUG] Feedback formatted successfully")
         else:
