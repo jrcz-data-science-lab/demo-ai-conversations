@@ -18,23 +18,28 @@ app = Flask(__name__)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Init TTS
+# Init TTS (XTTS requires a valid speaker id; use model defaults when caller voice is unknown)
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+DEFAULT_SPEAKER = tts.speakers[0] if hasattr(tts, "speakers") and tts.speakers else None
+AVAILABLE_SPEAKERS = set(tts.speakers or [])
  
 @app.post('/speech')
 def speech():
     data = request.get_json()
     text = data.get("text")
-    speaker = data.get("voice")
+    requested_speaker = data.get("voice")
     if not text:
         return jsonify({"error": "Missing text"}), 400
+
+    # Map requested speaker to a valid XTTS speaker id; fallback to model default
+    speaker = requested_speaker if requested_speaker in AVAILABLE_SPEAKERS else DEFAULT_SPEAKER
 
     # Create a temporary file for the output
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
         tmp_path = tmpfile.name
 
     try:
-        # Generate speech and save to the temporary file
+        # Generate speech and save to the temporary file (avoid invalid speaker ids that trigger CUDA asserts)
         tts.tts_to_file(text=text, speaker=speaker, language="nl", file_path=tmp_path)
 
         # Read the audio back into memory
@@ -53,4 +58,3 @@ def speech():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
-
