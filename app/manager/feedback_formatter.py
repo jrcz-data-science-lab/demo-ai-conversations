@@ -72,16 +72,29 @@ ASSESSMENT_ICONS = {
 }
 
 # Comprehension gap phrases that claim understanding but don't demonstrate it
+# Both Dutch and English phrases
+# These phrases are INAPPROPRIATE when speaking to someone older - students cannot claim to "understand" them
 COMPREHENSION_GAP_PHRASES = [
+    # Dutch phrases
     "ik begrijp het",
     "ik snap het",
-    "oké, duidelijk",
-    "oke, duidelijk",
-    "we gaan het regelen",
     "ik begrijp u",
+    "ik begrijp je",
+    "ik snap u",
+    "ik snap je",
     "ja, ik snap het",
     "ja ik snap het",
+    "ja, ik begrijp het",
+    "ja ik begrijp het",
     "ik weet het",
+    "ja, ik weet het",
+    "ja ik weet het",
+    "oké, duidelijk",
+    "oke, duidelijk",
+    "duidelijk",
+    "oké, ik begrijp het",
+    "oke, ik snap het",
+    "we gaan het regelen",
     "is goed",
     "ja dat klopt",
     "dat klopt",
@@ -96,10 +109,83 @@ COMPREHENSION_GAP_PHRASES = [
     "inderdaad",
     "ja zo is het",
     "zo is het",
+    "ah oké",
+    "ah oke",
+    "ah duidelijk",
+    "oké oké",
+    "oke oke",
+    # English phrases
+    "i understand",
+    "i get it",
+    "i understand you",
+    "yes i understand",
+    "yes, i understand",
+    "yeah i understand",
+    "yeah, i understand",
+    "i get it",
+    "yes i get it",
+    "yes, i get it",
+    "yeah i get it",
+    "yeah, i get it",
+    "got it",
+    "yes got it",
+    "yes, got it",
+    "yeah got it",
+    "yeah, got it",
+    "i see",
+    "yes i see",
+    "yes, i see",
+    "yeah i see",
+    "yeah, i see",
+    "yes that's right",
+    "that's right",
+    "yeah that's right",
+    "yes correct",
+    "correct",
+    "yes exactly",
+    "exactly",
+    "yeah exactly",
+    "yes that's correct",
+    "that's correct",
+    "yeah that's correct",
+    "yes that makes sense",
+    "that makes sense",
+    "yeah that makes sense",
+    "okay i understand",
+    "ok i understand",
+    "okay got it",
+    "ok got it",
+    "okay i see",
+    "ok i see",
+    "sure",
+    "yes sure",
+    "yes, sure",
+    "yeah sure",
+    "yeah, sure",
+    "alright",
+    "yes alright",
+    "yes, alright",
+    "yeah alright",
+    "i know",
+    "yes i know",
+    "yes, i know",
+    "yeah i know",
+    "yeah, i know",
+    "i know what you mean",
+    "i see what you mean",
+    "oh i understand",
+    "oh i see",
+    "ah i see",
+    "ah i understand",
+    "right i understand",
+    "right i get it",
+    "makes sense",
+    "that makes sense",
 ]
 
 # Heuristics to spot (perceived) understanding, paraphrasing, and confusion.
 UNDERSTANDING_CUES = [
+    # Dutch
     "ik begrijp",
     "ik snap",
     "als ik het goed begrijp",
@@ -112,8 +198,19 @@ UNDERSTANDING_CUES = [
     "ok",
     "oke",
     "klinkt duidelijk",
+    # English
+    "i understand",
+    "i get it",
+    "i see",
+    "if i understand correctly",
+    "if i understand",
+    "got it",
+    "understood",
+    "clear",
+    "okay",
 ]
 PARAPHRASE_CUES = [
+    # Dutch
     "je geeft aan",
     "u geeft aan",
     "wat ik hoor",
@@ -127,8 +224,20 @@ PARAPHRASE_CUES = [
     "als ik het goed samenvat",
     "kortom",
     "parafrase",
+    # English
+    "what i hear",
+    "so you're saying",
+    "so you say",
+    "so you feel",
+    "in other words",
+    "to summarize",
+    "if i understand correctly",
+    "in summary",
+    "what you're saying",
+    "you mean",
 ]
 CHECKVRAAG_CUES = [
+    # Dutch
     "heb ik dat goed",
     "klopt dat",
     "begrijp ik u goed",
@@ -137,6 +246,16 @@ CHECKVRAAG_CUES = [
     "is dat juist",
     "vraag",
     "?",
+    # English
+    "did i understand correctly",
+    "is that correct",
+    "is that right",
+    "have i understood correctly",
+    "do i understand correctly",
+    "is that accurate",
+    "am i correct",
+    "did i get that right",
+    "did i get it right",
 ]
 CONFUSION_CUES = [
     "ik weet niet",
@@ -206,18 +325,72 @@ def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Di
         return sum(1 for msg in lower_messages for cue in cues if cue in msg)
 
     def find_exact_phrases(messages: List[str], phrases: List[str]) -> List[Tuple[str, int]]:
-        """Find exact phrases used and their message index."""
+        """Find exact phrases used and their message index. Uses flexible matching to catch variations in both Dutch and English."""
         found = []
+        found_set = set()  # Track (phrase, idx) to avoid duplicates
+        
         for idx, msg in enumerate(messages):
-            msg_lower = msg.lower()
+            # Normalize the message: lowercase, remove extra whitespace, normalize punctuation
+            msg_lower = msg.lower().strip()
+            msg_normalized = re.sub(r'\s+', ' ', msg_lower)  # Multiple spaces to single space
+            # Keep punctuation for word boundary matching
+            msg_for_matching = msg_normalized
+            
             for phrase in phrases:
-                if phrase in msg_lower:
-                    # Extract the exact phrase as it appears (case-insensitive match)
+                # Skip if already found this phrase in this message
+                if (phrase, idx) in found_set:
+                    continue
+                    
+                phrase_lower = phrase.lower().strip()
+                
+                # Strategy 1: Exact match (handles cases where message IS the phrase)
+                if phrase_lower == msg_normalized:
                     found.append((phrase, idx))
+                    found_set.add((phrase, idx))
+                    continue
+                
+                # Strategy 2: Word boundary matching (most reliable)
+                # Create pattern with word boundaries to match whole phrases
+                phrase_words = re.split(r'[\s,]+', phrase_lower.strip())
+                phrase_pattern = r'\b' + r'\s*[\s,]*'.join([re.escape(word) for word in phrase_words if word]) + r'\b'
+                
+                if re.search(phrase_pattern, msg_for_matching, re.IGNORECASE):
+                    found.append((phrase, idx))
+                    found_set.add((phrase, idx))
+                    continue
+                
+                # Strategy 3: Normalized matching (handles punctuation variations)
+                # Normalize both: remove punctuation, normalize spaces
+                msg_normalized_no_punct = re.sub(r'[^\w\s]', ' ', msg_for_matching)
+                msg_normalized_no_punct = re.sub(r'\s+', ' ', msg_normalized_no_punct).strip()
+                
+                phrase_normalized = re.sub(r'[^\w\s]', ' ', phrase_lower)
+                phrase_normalized = re.sub(r'\s+', ' ', phrase_normalized).strip()
+                
+                # Check if normalized phrase appears as whole words (not substring)
+                if phrase_normalized:
+                    # Use word boundaries for normalized matching too
+                    normalized_pattern = r'\b' + re.escape(phrase_normalized) + r'\b'
+                    if re.search(normalized_pattern, msg_normalized_no_punct, re.IGNORECASE):
+                        found.append((phrase, idx))
+                        found_set.add((phrase, idx))
+                        continue
+                    
+                    # Fallback: check if phrase starts the message
+                    if msg_normalized_no_punct.startswith(phrase_normalized + ' ') or msg_normalized_no_punct == phrase_normalized:
+                        found.append((phrase, idx))
+                        found_set.add((phrase, idx))
+        
         return found
 
-    # Find comprehension gap phrases
+    # Find comprehension gap phrases - use improved matching
     gap_phrases_found = find_exact_phrases(student_messages, COMPREHENSION_GAP_PHRASES)
+    
+    # Debug: log what we found for troubleshooting
+    if gap_phrases_found:
+        print(f"[DEBUG COMPREHENSION GAP] Found {len(gap_phrases_found)} comprehension gap phrases in messages:")
+        for phrase, msg_idx in gap_phrases_found:
+            print(f"  - Phrase: '{phrase}' in message {msg_idx}: '{student_messages[msg_idx][:100]}...'")
     
     # Check if each gap phrase is followed by paraphrase or checkvraag
     gap_issues = []
@@ -229,7 +402,33 @@ def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Di
         
         # First check the same message (after the phrase)
         current_message = student_messages[msg_idx].lower()
-        phrase_pos = current_message.find(phrase.lower())
+        # Try to find phrase position using multiple strategies
+        phrase_pos = -1
+        phrase_lower = phrase.lower()
+        
+        # Strategy 1: Direct find
+        phrase_pos = current_message.find(phrase_lower)
+        
+        # Strategy 2: If not found, try normalized matching
+        if phrase_pos < 0:
+            # Normalize both for matching
+            msg_normalized = re.sub(r'[^\w\s]', ' ', current_message)
+            msg_normalized = re.sub(r'\s+', ' ', msg_normalized).strip()
+            phrase_normalized = re.sub(r'[^\w\s]', ' ', phrase_lower)
+            phrase_normalized = re.sub(r'\s+', ' ', phrase_normalized).strip()
+            
+            if phrase_normalized in msg_normalized:
+                # Approximate position - use the normalized phrase start
+                phrase_pos = msg_normalized.find(phrase_normalized)
+                # Map back to approximate position in original (rough estimate)
+                if phrase_pos >= 0:
+                    # Count spaces/words before the phrase in normalized version
+                    words_before = len(msg_normalized[:phrase_pos].split())
+                    # Try to find corresponding position in original
+                    words = current_message.split()
+                    if words_before < len(words):
+                        phrase_pos = len(' '.join(words[:words_before])) if words_before > 0 else 0
+        
         if phrase_pos >= 0:
             # Check text after the phrase in the same message
             text_after_phrase = current_message[phrase_pos + len(phrase):]
@@ -286,9 +485,9 @@ def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Di
         total_count = sum(phrase_counts.values())
         
         if total_count == 1:
-            gap_reasons.append(f"❌ VERMIJD dit: Je zei '{phrases_text}' zonder te toetsen of je het goed begreep. Dit veroorzaakt een begripsgat. Zeg NIET 'ik begrijp het' of 'ja dat klopt' zonder direct daarna te controleren met een parafrase of checkvraag.")
+            gap_reasons.append(f"❌ VERMIJD dit: Je zei '{phrases_text}' tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt' of 'snapt' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?').")
         else:
-            gap_reasons.append(f"❌ VERMIJD dit: Je zei meerdere keren dingen zoals '{phrases_text}' ({total_count} keer) zonder te toetsen of je het goed begreep. Dit veroorzaakt een begripsgat. Zeg NIET 'ik begrijp het', 'ja ik snap het', 'ja dat klopt' of vergelijkbare uitspraken zonder direct daarna te controleren met een parafrase (bijv. 'Dus u voelt zich...?') of checkvraag (bijv. 'Heb ik dat goed begrepen?').")
+            gap_reasons.append(f"❌ VERMIJD dit: Je zei meerdere keren dingen zoals '{phrases_text}' ({total_count} keer) tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt', 'snapt' of het 'weet' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase (bijv. 'Dus u voelt zich...?') of checkvraag (bijv. 'Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
 
     # Additional checks
     if understanding_hits and question_count < max(1, understanding_hits):
@@ -710,7 +909,7 @@ def build_summary_section(metadata: Dict[str, Any], conversation_history: Option
         exact_phrases = gap_result.get("exact_phrases", [])
         if exact_phrases:
             phrases_quoted = "', '".join(set(exact_phrases[:3]))
-            lines.append(f"- ❌ Begripscontrole: Je gebruikte uitspraken zoals '{phrases_quoted}' zonder te toetsen. VERMIJD dit - zeg NIETS of gebruik direct een parafrase/checkvraag.")
+            lines.append(f"- ❌ Begripscontrole: Je gebruikte uitspraken zoals '{phrases_quoted}' tegen iemand die ouder is dan jij. Dit is onbeleefd - je kunt niet beweren dat je iemand 'begrijpt' of 'snapt' die ouder is. VERMIJD dit - zeg NIETS of gebruik direct een parafrase/checkvraag.")
         else:
             lines.append(f"- ❌ Begripscontrole: {gap_result.get('summary', 'Begrip niet overtuigend getoond.')}")
     else:
@@ -832,9 +1031,9 @@ def build_understanding_section(gap_result: Dict[str, Any]) -> str:
             total_count = sum(phrase_counts.values())
             
             if total_count == 1:
-                lines.append(f"- ❌ VERMIJD: Je zei '{phrases_text}' zonder te toetsen of je het goed begreep. Zeg NIET dingen zoals 'ik begrijp het', 'ja ik snap het', 'ja dat klopt' of vergelijkbare uitspraken zonder direct daarna een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?') te stellen.")
+                lines.append(f"- ❌ VERMIJD: Je zei '{phrases_text}' tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt' of 'snapt' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
             else:
-                lines.append(f"- ❌ VERMIJD: Je gebruikte {total_count} keer uitspraken zoals '{phrases_text}' zonder te toetsen of je het goed begreep. Dit veroorzaakt een begripsgat. Zeg NIET 'ik begrijp het', 'ja ik snap het', 'ja dat klopt', 'precies', 'akkoord' of vergelijkbare bevestigingen zonder direct daarna te controleren met een parafrase ('Dus u voelt zich...?') of checkvraag ('Klopt het dat...?').")
+                lines.append(f"- ❌ VERMIJD: Je gebruikte {total_count} keer uitspraken zoals '{phrases_text}' tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt', 'snapt', het 'weet' of dat het 'klopt' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Klopt het dat...?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
         
         # Add other reasons
         reasons = gap_result.get("reasons", [])
@@ -956,18 +1155,18 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
         exact_phrases = gap_result.get("exact_phrases", [])
         if exact_phrases:
             phrases_example = "', '".join(exact_phrases[:3])
-            improvements.append(f"VERMIJD uitspraken zoals '{phrases_example}' zonder te controleren. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
+            improvements.append(f"VERMIJD uitspraken zoals '{phrases_example}' tegen iemand die ouder is - dit is onbeleefd omdat je niet kunt beweren dat je iemand 'begrijpt' die ouder is. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
         else:
-            improvements.append("VERMIJD uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'ja dat klopt' zonder te controleren. In plaats daarvan: gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
+            improvements.append("VERMIJD uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'i understand', 'i get it' tegen iemand die ouder is - dit is onbeleefd omdat je niet kunt beweren dat je iemand 'begrijpt' die ouder is. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
 
     # Collect specific communication techniques (Rule 7)
     if gap_result.get("gap_detected"):
         exact_phrases = gap_result.get("exact_phrases", [])
         if exact_phrases:
             phrases_example = "', '".join(exact_phrases[:2])
-            techniques.append(f"Techniek: VERMIJD uitspraken zoals '{phrases_example}'. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om je begrip te toetsen.")
+            techniques.append(f"Techniek: VERMIJD uitspraken zoals '{phrases_example}' tegen iemand die ouder is - dit is onbeleefd. In plaats daarvan: zeg NIETS (luister gewoon), of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
         else:
-            techniques.append("Techniek: VERMIJD uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'ja dat klopt'. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om je begrip te toetsen.")
+            techniques.append("Techniek: VERMIJD uitspraken zoals 'ik begrijp het', 'i understand', 'i get it' tegen iemand die ouder is - dit is onbeleefd omdat je niet kunt beweren dat je iemand 'begrijpt' die ouder is. In plaats daarvan: zeg NIETS (luister gewoon), of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
     else:
         # Suggest techniques based on what's missing
         if gap_result.get("paraphrase_attempts", 0) == 0:
