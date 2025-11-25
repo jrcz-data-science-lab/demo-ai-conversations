@@ -36,6 +36,34 @@ ADDRESS_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Quick reference questions per Gordon-patroon to make follow-ups concrete.
+PATTERN_QUESTIONS = {
+    # English labels (from GORDON_PATTERNS).
+    "Health Perception / Management": "Hoe ervaart u uw gezondheid op dit moment en welke zorg gebruikt u?",
+    "Nutritional–Metabolic": "Hoe gaat het met eten en drinken; heeft u genoeg eetlust?",
+    "Elimination": "Kunt u vertellen hoe het gaat met plassen en ontlasting?",
+    "Activity–Exercise": "Hoe mobiel voelt u zich en wat lukt er in huis qua bewegen?",
+    "Sleep–Rest": "Hoe slaapt u de laatste tijd en wordt u uitgerust wakker?",
+    "Cognitive–Perceptual": "Merkt u veranderingen in uw geheugen, concentratie of waarneming?",
+    "Self-Perception / Self-Concept": "Hoe voelt u zich over uzelf sinds de klachten zijn begonnen?",
+    "Role–Relationship": "Wie ondersteunt u thuis en hoe verloopt dat voor u?",
+    "Sexuality–Reproductive": "Heeft de situatie invloed op intimiteit of relaties?",
+    "Coping–Stress Tolerance": "Wat doet u als het even tegenzit en wat helpt u te ontspannen?",
+    "Values–Belief": "Zijn er overtuigingen of waarden die we moeten meenemen in uw zorg?",
+    # Dutch labels (defaults in metadata).
+    "Gezondheidsbeleving": "Hoe ervaart u uw gezondheid op dit moment en welke zorg gebruikt u?",
+    "Voeding": "Hoe gaat het met eten en drinken; heeft u genoeg eetlust?",
+    "Uitscheiding": "Kunt u vertellen hoe het gaat met plassen en ontlasting?",
+    "Activiteit": "Hoe mobiel voelt u zich en wat lukt er in huis qua bewegen?",
+    "Slaap": "Hoe slaapt u de laatste tijd en wordt u uitgerust wakker?",
+    "Cognitie": "Merkt u veranderingen in uw geheugen, concentratie of waarneming?",
+    "Zelfbeleving": "Hoe voelt u zich over uzelf sinds de klachten zijn begonnen?",
+    "Rollen": "Wie ondersteunt u thuis en hoe verloopt dat voor u?",
+    "Seksualiteit": "Heeft de situatie invloed op intimiteit of relaties?",
+    "Stress": "Wat doet u als het even tegenzit en wat helpt u te ontspannen?",
+    "Waarden": "Zijn er overtuigingen of waarden die we moeten meenemen in uw zorg?",
+}
+
 # Heuristics to spot (perceived) understanding, paraphrasing, and confusion.
 UNDERSTANDING_CUES = [
     "ik begrijp",
@@ -479,6 +507,11 @@ def build_summary_section(metadata: Dict[str, Any]) -> str:
     else:
         lines.append("- ✅ Begripscontrole: parafrases en vervolgvragen maakten je begrip overtuigend.")
 
+    missing_patterns = metadata.get("patterns_missing") or []
+    if missing_patterns:
+        top_missing = ", ".join(missing_patterns[:2])
+        lines.append(f"- Volgende focus: vraag door op {top_missing} met concrete voorbeelden.")
+
     lines.append(
         f"- Metrics: {metadata['speech_rate_wpm']} wpm | tempo-variatie {metadata['tempo_variation']}% | "
         f"pauze {metadata['pause_avg']}s | prosodie {metadata['prosody_score']}/100 | emotie {metadata['emotion']}."
@@ -563,6 +596,15 @@ def build_gordon_section(metadata: Dict[str, Any]) -> str:
 
     top_missing = ", ".join(metadata["patterns_missing"][:3]) if metadata["patterns_missing"] else "n.v.t."
     lines.append(f"- Focus voor volgende keer: {top_missing}")
+
+    # Add concrete follow-up questions for the most relevant missing patterns.
+    follow_ups = []
+    for pattern in metadata["patterns_missing"][:2]:
+        question = PATTERN_QUESTIONS.get(pattern) or PATTERN_QUESTIONS.get(pattern.split(" / ")[0])
+        if question:
+            follow_ups.append(f"Stel: \"{question}\"")
+    if follow_ups:
+        lines.append(f"- Vervolgvragen: {' | '.join(follow_ups)}")
     return "\n".join(lines)
 
 
@@ -605,6 +647,11 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
         actions.append(f"Plan vragen rond ontbrekende patronen ({missing}) om vollediger te screenen.")
     if gap_result.get("gap_detected"):
         actions.append("Check je begrip actief: vat kort samen wat de patiënt zei en stel daarna een open vervolgvraag om te bevestigen.")
+    # Add one or two concrete missing-pattern questions so next attempt is plug-and-play.
+    for pattern in metadata["patterns_missing"][:2]:
+        question = PATTERN_QUESTIONS.get(pattern) or PATTERN_QUESTIONS.get(pattern.split(" / ")[0])
+        if question:
+            actions.append(f"Gebruik deze vraag direct: \"{question}\"")
 
     actions = list(dict.fromkeys(actions))  # Deduplicate preserving order
     if len(actions) < 3:
