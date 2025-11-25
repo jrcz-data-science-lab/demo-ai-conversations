@@ -80,8 +80,22 @@ COMPREHENSION_GAP_PHRASES = [
     "we gaan het regelen",
     "ik begrijp u",
     "ja, ik snap het",
+    "ja ik snap het",
     "ik weet het",
     "is goed",
+    "ja dat klopt",
+    "dat klopt",
+    "ja precies",
+    "precies",
+    "klopt",
+    "ja goed",
+    "akkoord",
+    "ja natuurlijk",
+    "natuurlijk",
+    "ja inderdaad",
+    "inderdaad",
+    "ja zo is het",
+    "zo is het",
 ]
 
 # Heuristics to spot (perceived) understanding, paraphrasing, and confusion.
@@ -255,7 +269,7 @@ def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Di
 
     gap_reasons: List[str] = []
     
-    # Rule 1: Flag comprehension gap phrases
+    # Rule 1: Flag comprehension gap phrases - make feedback explicit and directive
     if gap_issues:
         # Group by phrase type
         phrase_counts = {}
@@ -263,11 +277,18 @@ def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Di
             phrase = issue["phrase"]
             phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
         
-        for phrase, count in phrase_counts.items():
-            if count == 1:
-                gap_reasons.append(f"Je zei '{phrase}', maar je controleerde niet of je het verhaal goed had begrepen. Dit veroorzaakt een begripsgat.")
-            else:
-                gap_reasons.append(f"Je zei meerdere keren '{phrase}', maar je controleerde niet of je het verhaal goed had begrepen. Dit veroorzaakt een begripsgat.")
+        # Get all unique phrases used
+        all_phrases = list(phrase_counts.keys())
+        phrases_text = "', '".join(all_phrases[:3])  # Show up to 3 examples
+        if len(all_phrases) > 3:
+            phrases_text += f" en nog {len(all_phrases) - 3} andere"
+        
+        total_count = sum(phrase_counts.values())
+        
+        if total_count == 1:
+            gap_reasons.append(f"❌ VERMIJD dit: Je zei '{phrases_text}' zonder te toetsen of je het goed begreep. Dit veroorzaakt een begripsgat. Zeg NIET 'ik begrijp het' of 'ja dat klopt' zonder direct daarna te controleren met een parafrase of checkvraag.")
+        else:
+            gap_reasons.append(f"❌ VERMIJD dit: Je zei meerdere keren dingen zoals '{phrases_text}' ({total_count} keer) zonder te toetsen of je het goed begreep. Dit veroorzaakt een begripsgat. Zeg NIET 'ik begrijp het', 'ja ik snap het', 'ja dat klopt' of vergelijkbare uitspraken zonder direct daarna te controleren met een parafrase (bijv. 'Dus u voelt zich...?') of checkvraag (bijv. 'Heb ik dat goed begrepen?').")
 
     # Additional checks
     if understanding_hits and question_count < max(1, understanding_hits):
@@ -685,11 +706,11 @@ def build_summary_section(metadata: Dict[str, Any], conversation_history: Option
     if gap_result.get("student_messages", 0) == 0:
         lines.append("- ℹ️ Begripscontrole: geen uitspraken om begrip te toetsen.")
     elif gap_result.get("gap_detected"):
-        # Rule 3: Quote exact phrases
+        # Rule 3: Quote exact phrases and give explicit directive
         exact_phrases = gap_result.get("exact_phrases", [])
         if exact_phrases:
-            phrases_quoted = "', '".join(set(exact_phrases[:2]))
-            lines.append(f"- ❌ Begripscontrole: Je zei '{phrases_quoted}', maar controleerde niet of je het goed begreep.")
+            phrases_quoted = "', '".join(set(exact_phrases[:3]))
+            lines.append(f"- ❌ Begripscontrole: Je gebruikte uitspraken zoals '{phrases_quoted}' zonder te toetsen. VERMIJD dit - zeg NIETS of gebruik direct een parafrase/checkvraag.")
         else:
             lines.append(f"- ❌ Begripscontrole: {gap_result.get('summary', 'Begrip niet overtuigend getoond.')}")
     else:
@@ -805,11 +826,15 @@ def build_understanding_section(gap_result: Dict[str, Any]) -> str:
             for phrase in exact_phrases:
                 phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
             
-            for phrase, count in phrase_counts.items():
-                if count == 1:
-                    lines.append(f"- ❌ Begripsgat: Je zei '{phrase}', maar je controleerde niet of je het verhaal goed had begrepen. Dit veroorzaakt een begripsgat.")
-                else:
-                    lines.append(f"- ❌ Begripsgat: Je zei meerdere keren '{phrase}', maar je controleerde niet of je het verhaal goed had begrepen. Dit veroorzaakt een begripsgat.")
+            # Get all unique phrases for a comprehensive feedback
+            all_phrases = list(phrase_counts.keys())
+            phrases_text = "', '".join(all_phrases[:4])  # Show up to 4 examples
+            total_count = sum(phrase_counts.values())
+            
+            if total_count == 1:
+                lines.append(f"- ❌ VERMIJD: Je zei '{phrases_text}' zonder te toetsen of je het goed begreep. Zeg NIET dingen zoals 'ik begrijp het', 'ja ik snap het', 'ja dat klopt' of vergelijkbare uitspraken zonder direct daarna een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?') te stellen.")
+            else:
+                lines.append(f"- ❌ VERMIJD: Je gebruikte {total_count} keer uitspraken zoals '{phrases_text}' zonder te toetsen of je het goed begreep. Dit veroorzaakt een begripsgat. Zeg NIET 'ik begrijp het', 'ja ik snap het', 'ja dat klopt', 'precies', 'akkoord' of vergelijkbare bevestigingen zonder direct daarna te controleren met een parafrase ('Dus u voelt zich...?') of checkvraag ('Klopt het dat...?').")
         
         # Add other reasons
         reasons = gap_result.get("reasons", [])
@@ -928,11 +953,21 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
         missing = ", ".join(metadata["patterns_missing"][:3])
         improvements.append(f"Plan vragen rond ontbrekende patronen ({missing}) om vollediger te screenen.")
     if gap_result.get("gap_detected"):
-        improvements.append("Check je begrip actief na uitspraken als 'ik begrijp het' door een parafrase of checkvraag te stellen.")
+        exact_phrases = gap_result.get("exact_phrases", [])
+        if exact_phrases:
+            phrases_example = "', '".join(exact_phrases[:3])
+            improvements.append(f"VERMIJD uitspraken zoals '{phrases_example}' zonder te controleren. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
+        else:
+            improvements.append("VERMIJD uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'ja dat klopt' zonder te controleren. In plaats daarvan: gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
 
     # Collect specific communication techniques (Rule 7)
     if gap_result.get("gap_detected"):
-        techniques.append("Techniek: Gebruik een parafrase (bijv. 'Dus u voelt zich...?') of checkvraag (bijv. 'Heb ik dat goed?') na elk moment waarop je zegt dat je iets begrijpt.")
+        exact_phrases = gap_result.get("exact_phrases", [])
+        if exact_phrases:
+            phrases_example = "', '".join(exact_phrases[:2])
+            techniques.append(f"Techniek: VERMIJD uitspraken zoals '{phrases_example}'. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om je begrip te toetsen.")
+        else:
+            techniques.append("Techniek: VERMIJD uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'ja dat klopt'. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om je begrip te toetsen.")
     else:
         # Suggest techniques based on what's missing
         if gap_result.get("paraphrase_attempts", 0) == 0:
