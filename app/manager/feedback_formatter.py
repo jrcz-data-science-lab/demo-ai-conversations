@@ -1329,6 +1329,34 @@ def build_understanding_section(
     return "\n".join(lines)
 
 
+def build_comprehension_section(comprehension_phrases):
+    """
+    Build the 'Begripstoetsing' section based on the detected comprehension gap phrases.
+    """
+    if not comprehension_phrases:
+        return (
+            "### Begripstoetsing (Comprehension Checking)\n"
+            "Goed gedaan: je hebt begrip actief getoetst door te parafraseren of verduidelijkende vragen te stellen.\n\n"
+        )
+
+    section = "### Begripstoetsing (Comprehension Checking)\n"
+    section += "We detecteerden de volgende uitdrukkingen die géén echte begripstoetsing laten zien:\n"
+
+    for phrase in comprehension_phrases:
+        section += f"- \"{phrase}\"\n"
+
+    section += (
+        "\nDeze zinnen klinken empathisch, maar ze stoppen het gesprek omdat de patiënt kan denken "
+        "dat verdere uitleg niet nodig is. Dit belemmert klinisch redeneren.\n\n"
+        "**Wat helpt meer?**\n"
+        "- Parafraseren: \"Dus u bedoelt dat…?\"\n"
+        "- Doorvragen: \"Wanneer merkt u dat vooral?\"\n"
+        "- Vermijd automatische reacties zoals \"ik begrijp het\", \"is goed\", \"precies\", \"ja ja\".\n\n"
+    )
+
+    return section
+
+
 def build_gordon_section(metadata: Dict[str, Any]) -> str:
     """
     Describe Gordon pattern coverage and missing aspects.
@@ -1598,6 +1626,17 @@ def format_student_feedback(
     llm_sections, lecturer_notes = sanitize_llm_output(conversation_feedback, metadata)
     conversation_skills_text = build_conversation_skills_section(llm_sections, metadata, conversation_analysis)
 
+    comprehension_phrases: List[str] = []
+    for source in (
+        gap_result.get("exact_phrases") or [],
+        (conversation_analysis.get("extracted_examples") or {}).get("understanding_examples", []),
+        (conversation_analysis.get("exact_phrases_used") or {}).get("understanding_phrases", []),
+    ):
+        for phrase in source:
+            if phrase and phrase not in comprehension_phrases:
+                comprehension_phrases.append(phrase)
+    comprehension_section_text = build_comprehension_section(comprehension_phrases)
+
     speech_section_text = build_speech_section(speech_result, metadata, conversation_analysis)
     understanding_section_text = build_understanding_section(gap_result, conversation_analysis)
     gordon_section_text = build_gordon_section(metadata)
@@ -1610,8 +1649,9 @@ def format_student_feedback(
     ordered_sections: List[str] = [
         summary_section,
         conversation_skills_text,
-        understanding_section_text,
+        comprehension_section_text,
         speech_section_text,
+        understanding_section_text,
         gordon_section_text,
         action_items_text,
         motivational_close,
@@ -1623,6 +1663,7 @@ def format_student_feedback(
     structured_sections: Dict[str, Any] = {
         "summary": summary_section,
         "gespreksvaardigheden": conversation_skills_text,
+        "comprehension": comprehension_section_text,
         "understanding_gap": understanding_section_text,
         "gordon": gordon_section_text,
         "action_items": action_items_text,
