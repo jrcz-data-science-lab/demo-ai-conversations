@@ -1295,60 +1295,59 @@ def build_understanding_section(
     Rule 1: Must quote exact phrases that caused issues.
     Rule 3: Always quote exact student phrases.
     """
-    lines = ["=== 4. Begripstoetsing ==="]
+    lines = ["=== 4. Begripstoetsing (Comprehension Checking) ==="]
     analysis_block = conversation_analysis or {}
     analysis_flags = analysis_block.get("flags", {})
     analysis_examples = analysis_block.get("extracted_examples", {})
     analysis_phrases = analysis_block.get("exact_phrases_used", {})
     understanding_examples = analysis_examples.get("understanding_examples") or []
+    gap_result = gap_result or {}
 
-    if (not gap_result or gap_result.get("student_messages", 0) == 0) and not analysis_examples.get("understanding_examples"):
-        lines.append("- Geen studentuitspraken beschikbaar om begrip te toetsen.")
-        return "\n".join(lines)
+    gap_issues = gap_result.get("gap_issues") or []
+    gap_phrases: List[str] = [issue.get("phrase") for issue in gap_issues if issue.get("phrase")]
 
-    lines.append(
-        f"- Uitgesproken begrip: {gap_result.get('understanding_statements', 0)} | parafrases: "
-        f"{gap_result.get('paraphrase_attempts', 0)} | checkvragen: {gap_result.get('checkvraag_attempts', 0)} | vervolgvragen: {gap_result.get('followup_questions', 0)}."
-    )
+    for source in (
+        gap_result.get("exact_phrases") or [],
+        understanding_examples,
+        analysis_phrases.get("understanding_phrases", []),
+    ):
+        for phrase in source:
+            if phrase and phrase not in gap_phrases:
+                gap_phrases.append(phrase)
 
-    if analysis_flags.get("comprehension_gap"):
-        unique_examples = []
-        for ex in understanding_examples or analysis_phrases.get("understanding_phrases", []):
-            if ex not in unique_examples:
-                unique_examples.append(ex)
-        if unique_examples:
-            quoted = "', '".join(unique_examples[:3])
-            lines.append(f"- ❌ Begrip claimen zonder check: '{quoted}'. 'Ik begrijp het' is onvoldoende; parafraseer binnen 2 zinnen of stel een checkvraag.")
-        else:
-            lines.append("- ❌ Begrip claimen zonder check: parafrase of checkvraag ontbrak binnen 2 zinnen na je begrip-uitspraak.")
-    elif gap_result.get("gap_detected"):
-        # Rule 1B & Rule 3: Quote exact phrases
-        exact_phrases = gap_result.get("exact_phrases", [])
-        gap_issues = gap_result.get("gap_issues", [])
-        
-        if exact_phrases:
-            # Group phrases by type and count
-            phrase_counts = {}
-            for phrase in exact_phrases:
-                phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
-            
-            # Get all unique phrases for a comprehensive feedback
-            all_phrases = list(phrase_counts.keys())
-            phrases_text = "', '".join(all_phrases[:4])  # Show up to 4 examples
-            total_count = sum(phrase_counts.values())
-            
-            if total_count == 1:
-                lines.append(f"- ❌ VERMIJD: Je zei '{phrases_text}' tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt' of 'snapt' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
-            else:
-                lines.append(f"- ❌ VERMIJD: Je gebruikte {total_count} keer uitspraken zoals '{phrases_text}' tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt', 'snapt', het 'weet' of dat het 'klopt' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Klopt het dat...?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
-        
-        # Add other reasons
-        reasons = gap_result.get("reasons", [])
-        for reason in reasons:
-            if not any(phrase in reason for phrase in exact_phrases):  # Avoid duplicates
-                lines.append(f"- {reason}")
+    if gap_result.get("student_messages", 0) or understanding_examples:
+        lines.append(
+            f"- Uitgesproken begrip: {gap_result.get('understanding_statements', 0)} | parafrases: "
+            f"{gap_result.get('paraphrase_attempts', 0)} | checkvragen: {gap_result.get('checkvraag_attempts', 0)} | vervolgvragen: {gap_result.get('followup_questions', 0)}."
+        )
+
+    gap_detected = bool(gap_phrases) or gap_result.get("gap_detected") or analysis_flags.get("comprehension_gap")
+
+    if gap_phrases:
+        lines.append("- Signalen van geclaimd begrip zonder check:")
+        harmful_reasons = [
+            "klinkt empathisch maar bewijst je begrip niet",
+            "kan ervoor zorgen dat de patiënt minder informatie deelt",
+            "klinkt als snel akkoord zonder echt te toetsen of het klopt",
+        ]
+        for idx, phrase in enumerate(gap_phrases):
+            reason = harmful_reasons[idx % len(harmful_reasons)]
+            lines.append(f"  • \"{phrase}\" – {reason}; toon begrip door kort samen te vatten of een checkvraag te stellen.")
+        lines.append("- Verbeter direct met:")
+        lines.append("  • Parafraseer: \"Dus u zegt dat...?\" zodat de patiënt hoort wat jij hebt opgepikt.")
+        lines.append("  • Stel verduidelijkende of checkvragen vóórdat je bevestigt.")
+        lines.append("  • Vermijd instemmers zoals \"ja ja\", \"ik begrijp het\" of \"is goed\"; geef liever een korte samenvatting.")
+    elif gap_detected:
+        lines.append("- ❌ Begrip claimen zonder parafrase of checkvraag; laat in je eigen woorden horen wat de patiënt zei.")
+        lines.append("  • Parafraseer: \"Dus u zegt dat...?\"")
+        lines.append("  • Vraag door of je het goed hebt begrepen.")
+        lines.append("  • Vermijd instemmers zoals \"ja ja\", \"ik begrijp het\" of \"is goed\".")
     else:
-        lines.append("- ✅ Geen duidelijke kloof tussen gedacht en getoond begrip; je parafraseerde of stelde checkvragen waardoor je begrip aannemelijk is.")
+        success_line = "Goed gedaan: je controleerde begrip door te parafraseren."
+        if gap_result.get("paraphrase_attempts", 0) or gap_result.get("checkvraag_attempts", 0):
+            lines.append(f"- {success_line}")
+        else:
+            lines.append(f"- {success_line} You checked understanding correctly.")
 
     return "\n".join(lines)
 
