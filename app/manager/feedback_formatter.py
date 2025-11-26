@@ -1295,7 +1295,7 @@ def build_understanding_section(
     Rule 1: Must quote exact phrases that caused issues.
     Rule 3: Always quote exact student phrases.
     """
-    lines = ["=== 4. Begripstoetsing (Comprehension Checking) ==="]
+    lines = ["### Begripstoetsing (Comprehension Checking)"]
     analysis_block = conversation_analysis or {}
     analysis_flags = analysis_block.get("flags", {})
     analysis_examples = analysis_block.get("extracted_examples", {})
@@ -1309,45 +1309,22 @@ def build_understanding_section(
     for source in (
         gap_result.get("exact_phrases") or [],
         understanding_examples,
-        analysis_phrases.get("understanding_phrases", []),
     ):
         for phrase in source:
             if phrase and phrase not in gap_phrases:
                 gap_phrases.append(phrase)
 
-    if gap_result.get("student_messages", 0) or understanding_examples:
-        lines.append(
-            f"- Uitgesproken begrip: {gap_result.get('understanding_statements', 0)} | parafrases: "
-            f"{gap_result.get('paraphrase_attempts', 0)} | checkvragen: {gap_result.get('checkvraag_attempts', 0)} | vervolgvragen: {gap_result.get('followup_questions', 0)}."
-        )
-
-    gap_detected = bool(gap_phrases) or gap_result.get("gap_detected") or analysis_flags.get("comprehension_gap")
-
     if gap_phrases:
-        lines.append("- Signalen van geclaimd begrip zonder check:")
-        harmful_reasons = [
-            "klinkt empathisch maar bewijst je begrip niet",
-            "kan ervoor zorgen dat de patiënt minder informatie deelt",
-            "klinkt als snel akkoord zonder echt te toetsen of het klopt",
-        ]
-        for idx, phrase in enumerate(gap_phrases):
-            reason = harmful_reasons[idx % len(harmful_reasons)]
-            lines.append(f"  • \"{phrase}\" – {reason}; toon begrip door kort samen te vatten of een checkvraag te stellen.")
-        lines.append("- Verbeter direct met:")
-        lines.append("  • Parafraseer: \"Dus u zegt dat...?\" zodat de patiënt hoort wat jij hebt opgepikt.")
-        lines.append("  • Stel verduidelijkende of checkvragen vóórdat je bevestigt.")
-        lines.append("  • Vermijd instemmers zoals \"ja ja\", \"ik begrijp het\" of \"is goed\"; geef liever een korte samenvatting.")
-    elif gap_detected:
-        lines.append("- ❌ Begrip claimen zonder parafrase of checkvraag; laat in je eigen woorden horen wat de patiënt zei.")
-        lines.append("  • Parafraseer: \"Dus u zegt dat...?\"")
-        lines.append("  • Vraag door of je het goed hebt begrepen.")
-        lines.append("  • Vermijd instemmers zoals \"ja ja\", \"ik begrijp het\" of \"is goed\".")
+        lines.append("Gehoorde uitspraken die begrip claimen zonder toets:")
+        for phrase in gap_phrases:
+            lines.append(f"• \"{phrase}\"")
+        lines.append("Deze uitdrukkingen klinken empathisch, maar tonen geen echte begripstoetsing. De patiënt kan hierdoor denken dat verdere uitleg niet nodig is.")
+        lines.append("Verbeter met:")
+        lines.append("• Gebruik parafrases zoals \"Dus u geeft aan dat...?\" om te laten horen wat jij hebt opgepikt.")
+        lines.append("• Stel verduidelijkende of checkvragen, bijv. \"Wanneer merkt u dat vooral?\"")
+        lines.append("• Vermijd automatische instemmers zoals \"ja ja\", \"is goed\" of \"ik snap het\"; geef liever een korte samenvatting.")
     else:
-        success_line = "Goed gedaan: je controleerde begrip door te parafraseren."
-        if gap_result.get("paraphrase_attempts", 0) or gap_result.get("checkvraag_attempts", 0):
-            lines.append(f"- {success_line}")
-        else:
-            lines.append(f"- {success_line} You checked understanding correctly.")
+        lines.append("Je hebt goed begrip getoetst door te parafraseren en verduidelijkende vragen te stellen.")
 
     return "\n".join(lines)
 
@@ -1633,8 +1610,8 @@ def format_student_feedback(
     ordered_sections: List[str] = [
         summary_section,
         conversation_skills_text,
-        speech_section_text,
         understanding_section_text,
+        speech_section_text,
         gordon_section_text,
         action_items_text,
         motivational_close,
