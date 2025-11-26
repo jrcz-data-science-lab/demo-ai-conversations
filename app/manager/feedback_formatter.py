@@ -106,6 +106,17 @@ CHECKVRAAG_CUES = [
 
 CONFUSION_CUES = ["ik weet niet", "niet zeker", "twijfel", "uh", "uhm", "hmm"]
 
+
+def format_pause_distribution_text(pause_distribution: Dict[str, float]) -> str:
+    """
+    Render pause distribution as a readable percentage string.
+    """
+    return (
+        f"{pause_distribution.get('short', 0)}% kort / "
+        f"{pause_distribution.get('medium', 0)}% middel / "
+        f"{pause_distribution.get('long', 0)}% lang"
+    )
+
 ANALYSIS_UNDERSTANDING_PHRASES = [
     "ik begrijp het", "ik snap het", "ik begrijp u", "oke duidelijk",
 ]
@@ -720,3 +731,114 @@ def assemble_final_feedback(
     ]
 
     return "\n".join(ordered_sections)
+
+
+# ======================================================
+# === PUBLIC ENTRYPOINT ===============================
+# ======================================================
+
+def format_student_feedback(
+    conversation_feedback,
+    gordon_result,
+    speech_result,
+    conversation_history: Optional[str] = None,
+):
+    """
+    Public wrapper used by app.py to turn raw analysis results into a user-facing feedback payload.
+    Returns both plain text and a structured dict for downstream use.
+    """
+    metadata = build_feedback_metadata(gordon_result, speech_result)
+    conversation_analysis = build_conversation_analysis_block(conversation_history, gordon_result)
+    understanding_result = analyze_understanding_gaps(conversation_history, metadata)
+
+    # === 1. Samenvatting ===
+    summary_lines = ["=== 1. Samenvatting ==="]
+    coverage = metadata.get("coverage_percentage", 0)
+    summary_lines.append(
+        f"- Gordon dekking: {metadata.get('covered_patterns', 0)}/{metadata.get('total_patterns', 11)} ({coverage}%)."
+    )
+    summary_lines.append(
+        f"- Prosodie: {metadata.get('prosody_score', 0)}/100 | Zelfvertrouwen: {metadata.get('confidence_score', 0)}/100."
+    )
+    filler_ratio = metadata.get("filler_ratio", 0)
+    if conversation_analysis["flags"].get("filler_issue"):
+        filler_summary = summarize_filler_tokens(conversation_analysis["exact_phrases_used"]["filler_words"])
+        summary_lines.append(f"- ❌ Fillers gehoord: {filler_summary}.")
+    else:
+        summary_lines.append(f"- Fillerratio: {filler_ratio}%.")
+    if understanding_result.get("gap_detected") or conversation_analysis["flags"].get("comprehension_gap"):
+        summary_lines.append("- ❌ Begrip claimen zonder parafrase/checkvraag; toets actief.")
+    else:
+        summary_lines.append("- ✅ Begripstoetsing klonk overtuigend.")
+    summary_section = "\n".join(summary_lines) + "\n\n"
+
+    # === 2. Gespreksvaardigheden ===
+    skills_lines = ["=== 2. Gespreksvaardigheden ==="]
+    exact = conversation_analysis["exact_phrases_used"]
+    open_qs = exact.get("open_questions", [])
+    closed_qs = exact.get("closed_questions", [])
+    if open_qs or closed_qs:
+        skills_lines.append(f"- Vragen gesteld: {len(open_qs)} open / {len(closed_qs)} gesloten.")
+        if open_qs:
+            skills_lines.append(f"  → Voorbeeld open vraag: \"{open_qs[0]}\"")
+        if closed_qs:
+            skills_lines.append(f"  → Voorbeeld gesloten vraag: \"{closed_qs[0]}\"")
+    paraphrases = exact.get("paraphrases", [])
+    if paraphrases:
+        skills_lines.append(f"- Parafrasepogingen: {len(paraphrases)} (bv. \"{paraphrases[0]}\").")
+    empathy = exact.get("empathy_attempts", [])
+    if empathy:
+        skills_lines.append(f"- Empathie: {len(empathy)} keer, zoals \"{empathy[0]}\".")
+    fillers = summarize_filler_tokens(exact.get("filler_words", []))
+    if fillers:
+        skills_lines.append(f"- Fillers in transcript: {fillers}.")
+    if conversation_feedback:
+        skills_lines.append("\nLLM-feedback:\n" + scrub_text(str(conversation_feedback).strip()))
+    skills_lines.append("")  # trailing newline
+    conversation_skills_text = "\n".join(skills_lines)
+
+    # === 4. Spraak Analyse ===
+    speech_section_text = build_speech_analysis_section(metadata)
+
+    # === 3/5/6/7/Docent ===
+    understanding_section_text = build_understanding_section(understanding_result, conversation_analysis)
+    gordon_section_text = build_gordon_section(metadata)
+    action_items_text = build_action_items_section(metadata, understanding_result, conversation_analysis, gordon_result)
+    motivational_close = build_motivational_close()
+    lecturer_section_text = build_lecturer_section(metadata)
+
+    ordered_sections = [
+        summary_section,
+        conversation_skills_text,
+        understanding_section_text,
+        speech_section_text,
+        gordon_section_text,
+        action_items_text,
+        motivational_close,
+        lecturer_section_text,
+    ]
+
+    formatted_feedback = "\n".join(ordered_sections)
+
+    structured_sections = {
+        "summary": summary_section,
+        "conversation_skills": conversation_skills_text,
+        "understanding": understanding_section_text,
+        "speech": speech_section_text,
+        "gordon": gordon_section_text,
+        "action_items": action_items_text,
+        "closing": motivational_close,
+        "lecturer": lecturer_section_text,
+    }
+
+    structured_payload = {
+        "sections": structured_sections,
+        "metadata": metadata,
+        "analysis_block": conversation_analysis,
+        "understanding_gap": understanding_result,
+    }
+
+    return {
+        "text": formatted_feedback,
+        "structured": structured_payload,
+    }
