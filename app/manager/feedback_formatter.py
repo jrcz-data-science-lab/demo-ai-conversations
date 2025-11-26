@@ -1,4 +1,3 @@
-tell me what was the mistake in that code i will just tell codex to fix it
 """
 Advanced formatter: produce structured, metric-driven feedback for nursing students.
 """
