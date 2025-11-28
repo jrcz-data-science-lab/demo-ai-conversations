@@ -58,9 +58,9 @@ def request_handling():
     if scenario == '1':
         voice_model = "Kumar Dahl"
     elif scenario == '2':
-        voice_model = "Luis Moray"
-    elif scenario == '3':
         voice_model = "Wulf Carlevaro"
+    elif scenario == '3':
+        voice_model = "Luis Moray"
     elif scenario == '4':
         voice_model = "Filip Traverse"
     else:
