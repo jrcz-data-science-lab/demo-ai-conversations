@@ -74,7 +74,7 @@ def send_audio(username, audio_b64, scenario, feedback=False):
     }
 
     try:
-        response = requests.post(SERVER_URL, json=data, timeout=60)
+        response = requests.post(SERVER_URL, json=data, timeout=500)
         response.raise_for_status()
 
         content_type = response.headers.get("Content-Type", "")

@@ -5,7 +5,7 @@ FEEDBACK_MODEL="qwen3:32b"
 
 pip install -r requirements.txt --break-system-packages
 
-ollama serve &
+OLLAMA_CONTEXT_LENGTH=32000 ollama serve &
 
 until ollama list >/dev/null 2>&1; do
   echo "Waiting for ollama to become available..."

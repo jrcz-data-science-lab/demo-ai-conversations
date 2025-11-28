@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 from db_utils import append_to_history, read_history, clear_history, store_audio_metadata, get_all_audio_metadata
 from sqlite import init_db
-from user_management import ensure_user
+from user_management import ensure_user, validation
 from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
 from feedback_formatter import format_student_feedback
@@ -66,8 +66,14 @@ def request_handling():
     else:
         voice_model = "Damien Black"
 
-    if not username or not audio_in or not scenario:
-        return jsonify({"error": "Missing username, audio, or scenario"}), 400
+    if not audio_in or not scenario:
+        return jsonify({"error": "Missing audio, or scenario"}), 400
+
+    # Validate username (email address)
+    if not username or not validation(username):  # Check if username is invalid
+        print("validation error triggered")
+        return jsonify({"error": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400
+
 
     # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
@@ -263,20 +269,25 @@ def generate_feedback():
                 }
             }
 
+        # DISABLED UNTIL ACCOUNT WORKS 
         # Call send_email and store the return value
-        email_sent = send_email(username, formatted_feedback)
+        # email_sent = send_email(username, formatted_feedback)
 
         # Based on the return value, you can take actions
-        if email_sent:
-            print("The email was sent successfully!")
-        else:
-            print("There was an issue sending the email.")
+        # if email_sent:
+        #    print("The email was sent successfully!")
+        # else:
+        #    print("There was an issue sending the email.")
+
+        # Temporary fix for email function
+        print(f"Sending email to: {username} Content: {formatted_feedback}")
         
         feedback_text = (formatted_feedback or {}).get("text")
         structured_feedback = (formatted_feedback or {}).get("structured", {})
+        closing_prompt = "Bedankt voor je inzet. Hier zijn mijn observaties van hoe het gesprek is gelopen."
 
         if feedback_text:
-            tts_resp = requests.post(TTS_URL, json={"text": feedback_text, "voice": voice})
+            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
 
             # Prepare response
