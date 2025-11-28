@@ -2,10 +2,12 @@ import json
 import random
 import statistics
 
-# Filler words for both Dutch and English
+# Filler words and hesitation markers for both Dutch and English
+# Rule 2: Specific hesitation markers that MUST be detected
+HESITATION_MARKERS = ["eh", "eeh", "ehm", "uh", "uhm", "mmm", "hmm", "emmm", "euh", "ah", "um"]
 DUTCH_FILLERS = ["euh", "eh", "uh", "ah", "um", "nou", "dus", "hmm", "ehm"]
 ENGLISH_FILLERS = ["uh", "um", "ah", "er", "so", "like", "you know", "well", "hmm"]
-ALL_FILLERS = DUTCH_FILLERS + ENGLISH_FILLERS
+ALL_FILLERS = list(set(HESITATION_MARKERS + DUTCH_FILLERS + ENGLISH_FILLERS))
 
 # Positive compliments for good performance
 POSITIVE_COMPLIMENTS = [
@@ -63,15 +65,27 @@ def analyze_speech_patterns(audio_metadata_list):
             if transcript_text:
                 all_transcript_texts.append(transcript_text)
     
-    # Count filler words across all transcripts
+    # Count filler words across all transcripts (Rule 2: detect hesitation markers)
     filler_count = 0
+    filler_details = []  # Store exact filler occurrences for quoting
     combined_text = " ".join(all_transcript_texts).lower()
     if combined_text:
         words = combined_text.split()
-        for word in words:
+        for idx, word in enumerate(words):
             # Remove punctuation for matching
             clean_word = word.strip(".,!?;:()[]{}'\"")
-            if clean_word in ALL_FILLERS:
+            # Check for exact hesitation markers (priority) or other fillers
+            if clean_word in HESITATION_MARKERS:
+                filler_count += 1
+                # Store context (previous and next word) for quoting
+                prev_word = words[idx - 1] if idx > 0 else ""
+                next_word = words[idx + 1] if idx < len(words) - 1 else ""
+                filler_details.append({
+                    "filler": clean_word,
+                    "context": f"{prev_word} {clean_word} {next_word}".strip(),
+                    "index": idx
+                })
+            elif clean_word in ALL_FILLERS:
                 filler_count += 1
     
     # Calculate speaking rate (words per minute)
@@ -113,11 +127,17 @@ def analyze_speech_patterns(audio_metadata_list):
     # Calculate filler ratio (fillers per 100 words)
     filler_ratio = (filler_count / total_words * 100) if total_words > 0 else 0
     
+    # Calculate filler density per 10 words
+    filler_density_per_10_words = (filler_count / total_words * 10) if total_words > 0 else 0
+    
     return {
         "speech_rate_wpm": round(speech_rate_wpm, 1),
         "avg_pause": round(avg_pause, 2),
         "filler_count": filler_count,
         "filler_ratio": round(filler_ratio, 2),
+        "filler_density_per_10_words": round(filler_density_per_10_words, 2),
+        "filler_details": filler_details[:10],  # Keep first 10 for reporting
+        "hesitation_markers": filler_count,  # Use same count for backward compatibility
         "long_pause_count": long_pause_count,
         "total_words": total_words,
         "total_duration": round(total_duration, 2)
