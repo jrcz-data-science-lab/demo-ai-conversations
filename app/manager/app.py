@@ -55,6 +55,17 @@ def request_handling():
     scenario = data.get("scenario")
     feedback_request = data.get("feedback", False)
 
+    # Validate inputs before continuing
+    if not audio_in or not scenario or not username or not validation(username):
+        if not audio_in:
+            return jsonify({"error [/general]": "No audio received."}), 400
+        elif not scenario:
+            return jsonify({"error [/general]": "No scenario specified"}), 400
+        elif not username:
+            return jsonify({"error [/general]": "Email is required."}), 400
+        elif not validation(username):
+            return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400    
+
     if scenario == '1':
         voice_model = "Kumar Dahl"
     elif scenario == '2':
@@ -65,15 +76,6 @@ def request_handling():
         voice_model = "Filip Traverse"
     else:
         voice_model = "Damien Black"
-
-    if not audio_in or not scenario:
-        return jsonify({"error": "Missing audio, or scenario"}), 400
-
-    # Validate username (email address)
-    if not username or not validation(username):  # Check if username is invalid
-        print("validation error triggered")
-        return jsonify({"error": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400
-
 
     # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
@@ -124,8 +126,13 @@ def generate_response():
     transcript_details = data.get("transcript_details", {})
     audio_duration = data.get("audio_duration", 0)
 
-    if not username or not transcript or not scenario:
-        return jsonify({"error": "Missing username, transcript, or scenario"}), 400
+    if not transcript or not scenario or not username:
+        if not transcript:
+            return jsonify({"error [/generate]": "No transcript recieved."}), 400
+        elif not scenario:
+            return jsonify({"error [/generate]": "No scenario specified"}), 400
+        elif not username:
+            return jsonify({"error [/generate]": "No username specified."}), 400
 
     ensure_user(username)
     # Store message and get message_id
@@ -183,6 +190,14 @@ def generate_feedback():
 
     ensure_user(username)
     convo = read_history(username)
+
+    if not username or not scenario or not convo:
+        if not username:
+            return jsonify({"error [/feedback]": "No username specified."}), 400
+        elif not scenario:
+            return jsonify({"error [/feedback]": "No scenario specified"}), 400
+        elif not convo:
+            return jsonify({"error [/feedback]": "No conversation history. Set feedback_request to false or change user"}), 400    
 
     # Dynamically load the feedback prompt from the dictionary
     feedback_prompt = prompts.get(f"feedback{scenario}", None)
