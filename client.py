@@ -201,15 +201,6 @@ def main():
                     if "speech_summary" in feedback_json:
                         print(f"\n=== Speaking Tips Summary ===\n{feedback_json['speech_summary']}")
                     
-                    # Display confidence score if available
-                    if "confidence" in feedback_json:
-                        print("\n=== Confidence Score ===")
-                        conf = feedback_json["confidence"]
-                        print(f"Confidence Level: {conf.get('level', 'N/A')}")
-                        print(f"Confidence Score: {conf.get('score', 'N/A')}/100")
-                        if conf.get("indicators"):
-                            print(f"Indicators: {', '.join(conf['indicators'][:3])}")  # Show first 3
-                    
                     # Display Gordon pattern analysis if available
                     if "gordon_patterns" in feedback_json:
                         print("\n=== Gordon Pattern Analysis ===")

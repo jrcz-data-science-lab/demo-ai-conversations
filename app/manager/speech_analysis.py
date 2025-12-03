@@ -1,4 +1,3 @@
-import json
 import random
 import statistics
 
@@ -11,12 +10,12 @@ ALL_FILLERS = list(set(HESITATION_MARKERS + DUTCH_FILLERS + ENGLISH_FILLERS))
 
 # Positive compliments for good performance
 POSITIVE_COMPLIMENTS = [
-    "Nice pacing overall!",
-    "Your tone sounded calm and confident.",
-    "Good job maintaining a steady flow.",
-    "You spoke clearly and naturally.",
-    "Excellent control of your speaking pace.",
-    "You sounded confident and articulate."
+    "Mooi rustige toon, prettig om naar te luisteren.",
+    "Je tempo klonk verzorgd en warm.",
+    "Goed gedaan met het behouden van een gelijkmatige flow.",
+    "Je sprak helder en natuurlijk.",
+    "Sterke controle over je spreektempo.",
+    "Je articulatie was duidelijk en betrokken."
 ]
 
 
@@ -163,17 +162,17 @@ def interpret_metrics(metrics):
     
     # Filler word feedback
     if filler_ratio > 10:
-        feedback.append("Je hebt veel stopwoorden gebruikt zoals 'euh' of 'eh'. Probeer deze te verminderen voor meer zelfvertrouwen.")
+        feedback.append("Je hebt veel stopwoorden gebruikt zoals 'euh' of 'eh'. Door ze te schrappen klinkt je verhaal helderder.")
     elif filler_ratio > 5:
-        feedback.append("Je gebruikte enkele stopwoorden. Probeer rustiger te spreken en kort te pauzeren in plaats van 'euh' te zeggen.")
+        feedback.append("Je gebruikte enkele stopwoorden. Neem kort een ademhaling in plaats van een 'euh'.")
     elif filler_ratio > 0:
-        feedback.append("Je gebruikte weinig stopwoorden, goed gedaan!")
+        feedback.append("Je gebruikte weinig stopwoorden, goed gedaan.")
     
     # Speaking rate feedback
     if speech_rate_wpm > 150:
-        feedback.append("Je sprak vrij snel. Door wat langzamer te spreken klink je duidelijker en zelfverzekerder.")
+        feedback.append("Je sprak vrij snel. Iets rustiger helpt de patiënt om mee te komen.")
     elif speech_rate_wpm < 80 and speech_rate_wpm > 0:
-        feedback.append("Je sprak vrij langzaam. Probeer het tempo iets te verhogen voor een natuurlijker gesprek.")
+        feedback.append("Je sprak vrij langzaam. Verhoog het tempo iets voor een natuurlijker gesprek.")
     elif 100 <= speech_rate_wpm <= 140:
         feedback.append("Je spreektempo was goed en natuurlijk.")
     
@@ -227,318 +226,129 @@ def add_positive_compliments(metrics, existing_feedback):
     return existing_feedback
 
 
-def analyze_content_quality(conversation_history):
+OPEN_QUESTION_PREFIXES = ["wat", "hoe", "waar", "waarom", "kunt u", "kunt je", "kan u", "kan je"]
+EMPATHY_CUES = ["vervelend", "kan me voorstellen", "klinkt lastig", "spijtig", "snap dat"]
+GORDON_TOPIC_HINTS = {
+    "Slaap": ["slaap", "slapen", "nacht", "vermoeid"],
+    "Stress": ["stress", "spanning", "coping", "zorgen"],
+    "Voeding": ["eten", "drink", "voeding", "eetlust"],
+    "Activiteit": ["bewegen", "lopen", "trap", "sport", "wandelen"],
+    "Uitscheiding": ["plassen", "ontlasting", "toilet"],
+    "Gezondheidsbeleving": ["gezondheid", "klachten", "pijn"],
+    "Cognitie": ["denken", "geheugen", "concentratie"],
+}
+
+
+def extract_conversation_cues(conversation_history):
     """
-    Analyze content quality from conversation history.
-    Detects nonsensical, unhelpful, or irrelevant responses.
-    
-    Args:
-        conversation_history: Full conversation text from read_history
-        
-    Returns:
-        dict: {
-            "quality_score": float (0-1.0, multiplier for confidence),
-            "issues": list of detected content quality issues,
-            "penalty": int (points to subtract from confidence score)
-        }
+    Lightweight scan of the transcript to ground feedback in actual statements.
     """
+    cues = {
+        "first_student_line": None,
+        "open_questions": [],
+        "closed_questions": [],
+        "empathy_examples": [],
+        "gordon_mentions": [],
+        "student_word_count": 0,
+    }
     if not conversation_history:
-        return {"quality_score": 1.0, "issues": [], "penalty": 0}
-    
-    # Extract student messages only
+        return cues
+
     student_messages = []
-    for line in conversation_history.split("\n"):
-        if line.startswith("Student:"):
-            student_text = line.replace("Student:", "").strip()
-            if student_text:
-                student_messages.append(student_text)
-    
+    for line in conversation_history.splitlines():
+        if line.strip().startswith("Student:"):
+            msg = line.split("Student:", 1)[1].strip()
+            if msg:
+                student_messages.append(msg)
+
     if not student_messages:
-        return {"quality_score": 1.0, "issues": [], "penalty": 0}
-    
-    issues = []
-    penalty = 0
-    quality_score = 1.0
-    
-    total_responses = len(student_messages)
-    
-    # Check for dismissive/unhelpful phrases
-    dismissive_phrases = [
-        "cannot help", "can't help", "kan niet helpen", "kan je niet helpen",
-        "bye", "bye bye", "doei", "dag", "tot ziens",
-        "sorry but", "sorry, but", "sorry maar",
-        "not my problem", "niet mijn probleem",
-        "i don't know", "ik weet het niet", "geen idee"
-    ]
-    dismissive_count = 0
-    
+        return cues
+
+    cues["first_student_line"] = student_messages[0]
+    cues["student_word_count"] = sum(len(msg.split()) for msg in student_messages)
+
+    gordon_hits = set()
     for msg in student_messages:
-        msg_lower = msg.lower()
-        if any(phrase in msg_lower for phrase in dismissive_phrases):
-            dismissive_count += 1
-    
-    if total_responses > 0:
-        dismissive_ratio = dismissive_count / total_responses
-        if dismissive_ratio > 0.3:  # More than 30% are dismissive
-            issues.append("Veel afwijzende/niet-behulpzame reacties")
-            penalty += 35
-            quality_score *= 0.65
-        elif dismissive_ratio > 0.15:  # More than 15%
-            issues.append("Enkele afwijzende reacties (niet behulpzaam)")
-            penalty += 25
-            quality_score *= 0.75
-        elif dismissive_count > 0:
-            issues.append("Afwijzende reactie gedetecteerd (niet behulpzaam)")
-            penalty += 20
-            quality_score *= 0.8
-    
-    # Check for very short responses (might indicate unhelpful/nonsensical)
-    very_short_responses = 0  # 1-3 words
-    short_responses = 0  # 4-6 words
-    
-    for msg in student_messages:
-        word_count = len(msg.split())
-        if word_count <= 3:
-            very_short_responses += 1
-        elif word_count <= 6:
-            short_responses += 1
-    
-    if total_responses > 0:
-        very_short_ratio = very_short_responses / total_responses
-        short_ratio = (very_short_responses + short_responses) / total_responses
-        
-        if very_short_ratio > 0.4:  # More than 40% are very short (1-3 words)
-            issues.append("Veel te korte reacties (1-3 woorden, mogelijk niet behulpzaam)")
-            penalty += 25
-            quality_score *= 0.75
-        elif very_short_ratio > 0.25:  # More than 25% are very short
-            issues.append("Veel zeer korte reacties")
-            penalty += 15
-            quality_score *= 0.85
-        elif short_ratio > 0.6:  # More than 60% are short (1-6 words)
-            issues.append("Meerderheid van reacties is kort (mogelijk niet behulpzaam)")
-            penalty += 20
-            quality_score *= 0.8
-    
-    # Check for repetitive/nonsensical patterns
-    non_substantive_words = ["ok", "oké", "ja", "nee", "uh", "um", "euh", "okay", "okey", "yes", "no"]
-    non_substantive_count = 0
-    
-    for msg in student_messages:
-        words = msg.lower().split()
-        cleaned_words = [w.strip(".,!?:;") for w in words]
-        # Check if response is mostly non-substantive words
-        if len(cleaned_words) <= 4:
-            non_substantive_in_msg = [w for w in cleaned_words if w in non_substantive_words]
-            if len(cleaned_words) <= 2 or (len(non_substantive_in_msg) > 0 and len(non_substantive_in_msg) / len(cleaned_words) > 0.5):
-                non_substantive_count += 1
-    
-    if total_responses > 0:
-        nonsubstantive_ratio = non_substantive_count / total_responses
-        if nonsubstantive_ratio > 0.3:  # More than 30% are non-substantive
-            issues.append("Veel niet-inhoudelijke reacties (bijv. alleen 'ok', 'ja')")
-            penalty += 30
-            quality_score *= 0.7
-        elif nonsubstantive_ratio > 0.2:  # More than 20%
-            issues.append("Enkele niet-inhoudelijke reacties")
-            penalty += 20
-            quality_score *= 0.8
-    
-    # Check for average response length (very short average = might be unhelpful)
-    if student_messages:
-        avg_words = sum(len(msg.split()) for msg in student_messages) / len(student_messages)
-        if avg_words < 4:
-            issues.append("Gemiddeld zeer korte reacties (mogelijk niet behulpzaam)")
-            penalty += 20
-            quality_score *= 0.8
-        elif avg_words < 7:
-            issues.append("Korte reacties in het algemeen")
-            penalty += 10
-            quality_score *= 0.9
-    
-    # Check for lack of questions (unhelpful students don't ask questions)
-    question_words = ["wat", "hoe", "waar", "waarom", "wie", "wanneer", "what", "how", "where", "why", "who", "when"]
-    questions_count = 0
-    for msg in student_messages:
-        if any(msg.lower().startswith(q + " ") or " " + q + " " in msg.lower() for q in question_words) or "?" in msg:
-            questions_count += 1
-    
-    if total_responses > 0:
-        question_ratio = questions_count / total_responses
-        if question_ratio < 0.1:  # Less than 10% are questions (very passive/unhelpful)
-            issues.append("Zeer weinig vragen gesteld (mogelijk niet behulpzaam)")
-            penalty += 20
-            quality_score *= 0.8
-        elif question_ratio < 0.2:  # Less than 20%
-            issues.append("Weinig vragen gesteld")
-            penalty += 10
-            quality_score *= 0.9
-    
-    return {
-        "quality_score": max(0.0, min(1.0, quality_score)),
-        "issues": issues,
-        "penalty": penalty
-    }
+        lower = msg.lower()
+        cleaned = lower.strip(" .,!?:;")
+        if any(cleaned.startswith(prefix + " ") or cleaned == prefix for prefix in OPEN_QUESTION_PREFIXES):
+            cues["open_questions"].append(msg)
+        elif cleaned.endswith("?"):
+            cues["closed_questions"].append(msg)
+
+        if any(token in lower for token in EMPATHY_CUES):
+            cues["empathy_examples"].append(msg)
+
+        for pattern, keywords in GORDON_TOPIC_HINTS.items():
+            if any(keyword in lower for keyword in keywords):
+                gordon_hits.add(pattern)
+
+    cues["gordon_mentions"] = sorted(gordon_hits)
+    return cues
 
 
-def calculate_confidence_score(metrics, conversation_history=None):
+def build_speaking_summary(metrics, cues):
     """
-    Calculate confidence score (0-100) based on speech patterns AND content quality.
-    
-    Higher confidence indicators:
-    - Normal speaking rate (100-140 WPM)
-    - Low filler ratio (< 5%)
-    - Balanced pauses (0.3-2.0s)
-    - Few long pauses
-    - Helpful, substantive responses
-    
-    Lower confidence indicators:
-    - Very slow or fast speaking rate
-    - High filler ratio
-    - Extremely short or long pauses
-    - Many long pauses
-    - Unhelpful, nonsensical, or very short responses
-    
-    Args:
-        metrics: dict with speech pattern metrics
-        conversation_history: optional conversation text for content quality analysis
-        
-    Returns:
-        dict: {
-            "score": int (0-100),
-            "level": str ("high", "medium", "low"),
-            "indicators": list of confidence indicators
-        }
+    Create the nursing-teacher style Speaking Tips Summary.
     """
-    filler_ratio = metrics.get("filler_ratio", 0)
-    speech_rate_wpm = metrics.get("speech_rate_wpm", 0)
+    speech_rate = metrics.get("speech_rate_wpm", 0)
     avg_pause = metrics.get("avg_pause", 0)
-    long_pause_count = metrics.get("long_pause_count", 0)
-    total_duration = metrics.get("total_duration", 0)
-    
-    # Calculate long pause ratio (long pauses per minute)
-    if total_duration > 0:
-        long_pause_ratio = (long_pause_count / total_duration) * 60
+    filler_count = metrics.get("filler_count", 0)
+
+    first_line = cues.get("first_student_line") or ""
+    opener = first_line[:160] + ("..." if len(first_line) > 160 else "")
+
+    open_questions = cues.get("open_questions") or []
+    closed_questions = cues.get("closed_questions") or []
+    empathy_examples = cues.get("empathy_examples") or []
+    gordon_mentions = cues.get("gordon_mentions") or []
+
+    # Bullet 1: houding/gespreksstijl
+    if opener:
+        bullet1 = f"Je opende met \"{opener}\", dat geeft direct contact; houd die warme toon vast zoals in een anamnesegesprek."
+    elif empathy_examples:
+        bullet1 = f"Je toonde betrokkenheid met zinnen als \"{empathy_examples[0]}\", dat helpt om veilig contact te maken."
     else:
-        long_pause_ratio = 0
-    
-    score = 100  # Start with perfect score
-    indicators = []
-    
-    # Speaking rate scoring (max -30 points)
-    if 100 <= speech_rate_wpm <= 140:
-        # Perfect range: no penalty
-        indicators.append("Goed spreektempo")
-    elif 80 <= speech_rate_wpm < 100 or 140 < speech_rate_wpm <= 160:
-        # Slightly off: -10 points
-        score -= 10
-        indicators.append("Spreektempo iets afwijkend")
-    elif speech_rate_wpm < 80:
-        # Too slow (can indicate nervousness): -20 points
-        score -= 20
-        indicators.append("Zeer langzaam spreektempo (mogelijk onzekerheid)")
-    elif speech_rate_wpm > 160:
-        # Too fast (can indicate nervousness): -20 points
-        score -= 20
-        indicators.append("Zeer snel spreektempo (mogelijk nervositeit)")
-    elif speech_rate_wpm == 0:
-        # No data
-        score -= 15
-    
-    # Filler ratio scoring (max -40 points)
-    if filler_ratio < 3:
-        # Excellent: no penalty
-        indicators.append("Weinig stopwoorden")
-    elif 3 <= filler_ratio < 5:
-        # Good: -5 points
-        score -= 5
-        indicators.append("Enkele stopwoorden")
-    elif 5 <= filler_ratio < 10:
-        # Moderate: -15 points
-        score -= 15
-        indicators.append("Veel stopwoorden (wijst op onzekerheid)")
-    elif filler_ratio >= 10:
-        # High: -30 points
-        score -= 30
-        indicators.append("Zeer veel stopwoorden (wijst op nervositeit)")
-    
-    # Pause scoring (max -20 points)
-    if 0.3 <= avg_pause <= 2.0:
-        # Balanced pauses: no penalty
-        indicators.append("Goede pauzes")
-    elif avg_pause < 0.3:
-        # Too short (rushed): -10 points
-        score -= 10
-        indicators.append("Te korte pauzes (mogelijk haast/onzekerheid)")
-    elif avg_pause > 2.0:
-        # Too long (thinking, uncertainty): -15 points
-        score -= 15
-        indicators.append("Lange pauzes (mogelijk onzekerheid)")
-    
-    # Long pause scoring (max -10 points)
-    if long_pause_ratio < 1:
-        # Few long pauses: no penalty
-        pass
-    elif 1 <= long_pause_ratio < 3:
-        # Some long pauses: -5 points
-        score -= 5
-        indicators.append("Enkele lange pauzes")
-    elif long_pause_ratio >= 3:
-        # Many long pauses: -10 points
-        score -= 10
-        indicators.append("Veel lange pauzes (wijst op onzekerheid)")
-    
-    # Content quality analysis (max -50+ points for very poor content)
-    if conversation_history:
-        content_quality = analyze_content_quality(conversation_history)
-        print(f"[DEBUG] Content quality analysis: penalty={content_quality['penalty']}, issues={content_quality['issues']}")
-        if content_quality["penalty"] > 0:
-            original_score = score
-            score -= content_quality["penalty"]
-            indicators.extend(content_quality["issues"])
-            # Also apply quality multiplier to final score
-            score = score * content_quality["quality_score"]
-            print(f"[DEBUG] Confidence score adjusted: {original_score} -> {score} (penalty: -{content_quality['penalty']}, multiplier: {content_quality['quality_score']})")
+        bullet1 = "Je toon was verzorgd; blijf expliciet contact maken zoals een docent in de anamnese zou coachen."
+
+    # Bullet 2: tempo/pauzes
+    if speech_rate <= 0:
+        bullet2 = "Het spreektempo was niet meetbaar; kies een rustig tempo en laat na elke vraag kort stilte vallen."
+    else:
+        tempo_note = f"Je tempo lag rond {speech_rate:.0f} wpm met pauzes van {avg_pause:.2f}s."
+        if speech_rate > 170 or avg_pause < 0.35:
+            bullet2 = f"{tempo_note} In een anamnesegesprek is het belangrijk om wat meer rust te laten zodat de patiënt kan reageren."
+        elif avg_pause > 2.2:
+            bullet2 = f"{tempo_note} Laat de pauzes korter en gericht zijn, zodat de flow van het gesprek blijft."
         else:
-            print("[DEBUG] Content quality analysis: No penalties applied")
-    
-    # Ensure score is between 0-100
-    score = max(0, min(100, score))
-    
-    # Determine confidence level
-    if score >= 75:
-        level = "high"
-    elif score >= 50:
-        level = "medium"
+            bullet2 = f"{tempo_note} Dat geeft meestal voldoende rust; blijf na elke vraag kort wachten."
+
+    # Bullet 3: klinische communicatie
+    if open_questions:
+        bullet3 = f"Je gebruikte open vragen zoals \"{open_questions[0]}\"; mooi voor actief luisteren en verkennen van patronen."
+    elif closed_questions:
+        bullet3 = f"Je stelde vooral gesloten vragen zoals \"{closed_questions[0]}\"; voeg meer open vragen toe voor verdiepend anamnesewerk."
     else:
-        level = "low"
-    
-    return {
-        "score": round(score),
-        "level": level,
-        "indicators": indicators
-    }
+        bullet3 = "Ik zag weinig verkennende vragen; stel open vragen om de patiënt zelf te laten vertellen en emoties te delen."
+
+    # Bullet 4: gesprekstechniek + advies
+    if filler_count > 0:
+        bullet4 = f"Je noteerde {filler_count} fillers; vervang die door een korte stilte en vraag daarna door op thema's als {', '.join(gordon_mentions[:2]) or 'slaap of stress'}."
+    elif gordon_mentions:
+        bullet4 = f"Je raakte {', '.join(gordon_mentions[:2])} al aan; stel na elke vraag een verdiepende vraag en laat even stilte vallen."
+    else:
+        bullet4 = "Probeer na elke vraag twee tellen stilte te laten en koppel terug naar een volgend Gordon-patroon, bijvoorbeeld slaap of coping."
+
+    lines = [
+        "=== Speaking Tips Summary ===",
+        f"• {bullet1}",
+        f"• {bullet2}",
+        f"• {bullet3}",
+        f"• {bullet4}",
+    ]
+    return "\n".join(lines)
 
 
-def interpret_confidence(confidence_result):
-    """
-    Generate human-readable feedback based on confidence score.
-    
-    Args:
-        confidence_result: dict from calculate_confidence_score()
-        
-    Returns:
-        str: Feedback message about confidence level
-    """
-    score = confidence_result.get("score", 50)
-    level = confidence_result.get("level", "medium")
-    
-    if level == "high":
-        return f"Je sprak met veel zelfvertrouwen (score: {score}/100). Je spreekpatroon was natuurlijk en vloeiend."
-    elif level == "medium":
-        return f"Je sprak met redelijk zelfvertrouwen (score: {score}/100). Er is ruimte voor verbetering in je spreekpatroon."
-    else:
-        return f"Je sprak met weinig zelfvertrouwen (score: {score}/100). Oefen met rustig en duidelijk spreken om je zelfvertrouwen te vergroten."
 
 
 def generate_icon_states(metrics):
@@ -604,37 +414,21 @@ def generate_speech_feedback(audio_metadata_list, conversation_history=None):
     """
     # Analyze speech patterns
     metrics = analyze_speech_patterns(audio_metadata_list)
-    
-    # Calculate confidence score (with content quality analysis if conversation provided)
-    confidence_result = calculate_confidence_score(metrics, conversation_history)
-    
+
     # Interpret metrics into human feedback
     interpretations = interpret_metrics(metrics)
-    
-    # Add confidence feedback at the beginning
-    confidence_feedback = interpret_confidence(confidence_result)
-    interpretations.insert(0, confidence_feedback)
-    
-    # Add positive compliments if metrics are good
     interpretations = add_positive_compliments(metrics, interpretations)
-    
-    # Generate summary
-    if interpretations:
-        summary = " ".join(interpretations)
-    else:
-        summary = "Je spreekpatroon was goed. Blijf zo doorgaan!"
-    
+
+    conversation_cues = extract_conversation_cues(conversation_history)
+    summary = build_speaking_summary(metrics, conversation_cues)
+
     # Generate icon states for Unreal Engine
     icon_states = generate_icon_states(metrics)
-    
-    # Add confidence to icon states
-    icon_states["confidence"] = confidence_result.get("level", "medium")
-    
+
     return {
         "metrics": metrics,
-        "confidence": confidence_result,
         "interpretations": interpretations,
         "summary": summary,
-        "icon_states": icon_states
+        "icon_states": icon_states,
+        "conversation_cues": conversation_cues,
     }
-

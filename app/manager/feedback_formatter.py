@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Threshold configuration lives here to keep logic easy to tune.
 THRESHOLDS = {
-    "confidence": {"high": 75, "medium": 45},
     "filler_ratio": {"low": 3, "medium": 7},
     "tempo_variation": {"stable": 10, "high": 20},
     "pause_short_ratio": 55,
@@ -752,7 +751,7 @@ def infer_emotion(existing_value: Optional[str], metrics: Dict[str, float]) -> s
     if tempo_variation > THRESHOLDS["tempo_variation"]["high"] or filler_ratio > THRESHOLDS["filler_ratio"]["medium"]:
         return "stressed"
     if short_pauses > THRESHOLDS["pause_short_ratio"]:
-        return "uncertain"
+        return "zoekend"
     if tempo_variation < THRESHOLDS["tempo_variation"]["stable"] and filler_ratio < THRESHOLDS["filler_ratio"]["low"]:
         return "calm"
     return "neutral"
@@ -773,7 +772,7 @@ def compute_prosody_score(metrics: Dict[str, float], emotion: str) -> float:
     if pause_avg > THRESHOLDS["pause_avg"]["long"]:
         pause_penalty += 6.0
 
-    emotion_adjustment = {"calm": 4.0, "empathetic": 6.0, "neutral": 0.0, "uncertain": -4.0, "stressed": -6.0, "confused": -5.0}
+    emotion_adjustment = {"calm": 4.0, "empathetic": 6.0, "neutral": 0.0, "zoekend": -4.0, "stressed": -6.0, "confused": -5.0}
     score = base - tempo_penalty - filler_penalty - pause_penalty + emotion_adjustment.get(emotion, 0.0)
     return max(0.0, min(100.0, round(score, 1)))
 
@@ -785,7 +784,6 @@ def build_feedback_metadata(gordon_result: Optional[Dict], speech_result: Option
     gordon_result = gordon_result or {}
     speech_result = speech_result or {}
     metrics = speech_result.get("metrics", {}) or {}
-    confidence = speech_result.get("confidence", {}) or {}
     pause_distribution = normalize_pause_distribution(metrics.get("pause_distribution"))
     
     # Handle field name inconsistency: speech_analysis returns "avg_pause" but we need "average_pause_length"
@@ -829,9 +827,6 @@ def build_feedback_metadata(gordon_result: Optional[Dict], speech_result: Option
         "volume_stability": metrics.get("volume_stability"),
         "filler_ratio": round(metrics.get("filler_ratio", 0.0), 1),
         "total_words": metrics.get("total_words", 0),  # Add for Rule 6
-        "confidence_score": confidence.get("score", 0),
-        "confidence_level": confidence.get("level", "medium"),
-        "confidence_indicators": confidence.get("indicators", []),
         "speech_summary": scrub_text((speech_result or {}).get("summary")),
         "emotion": infer_emotion((speech_result or {}).get("emotion"), metrics),
         "coverage_percentage": round(gordon_result.get("coverage_percentage", 0)),
@@ -875,7 +870,7 @@ BELANGRIJKE REGELS:
 - Als dekking < 27% (minder dan 3/11 patronen): DE toon MOET kritisch zijn. Geef maximaal 1 compliment en focus op wat ontbreekt.
 - Quote ALTIJD exacte studentuitdrukkingen (bijv. "Je zei: 'ik snap het'...").
 - Noem exacte fillers als die voorkomen (bijv. "Je gebruikte 'eh' meerdere keren").
-- Wees realistisch: bij lage dekking of lage prosodie/vertrouwen moet de toon kritischer zijn.
+- Wees realistisch: bij lage dekking of lage prosodie moet de toon kritischer zijn.
 
 =====================================
 ### 1. Complimenten
@@ -946,7 +941,7 @@ def generate_llm_section_default(header: str, metadata: Dict[str, Any]) -> str:
         return (
             f"- Tempo-variatie {metadata['tempo_variation']}% met gemiddelde pauze {metadata['pause_avg']}s "
             f"({pause_info}).\n"
-            f"- Tonaliteit: {metadata['emotion']} | Zelfvertrouwen {metadata['confidence_score']}/100."
+            f"- Tonaliteit: {metadata['emotion']} | Prosodie {metadata['prosody_score']}/100."
         )
     if header == "Gordon-patronen":
         missing = ", ".join(metadata["patterns_missing"][:3]) or "geen clear gaps"
@@ -1081,16 +1076,6 @@ def build_summary_section(
     # Rule 5: Add warning for very short history
     if is_very_short:
         lines.append(f"- ⚠️ Het gesprek was zeer kort ({sentence_count} zinnen), waardoor onvoldoende inzicht ontstond in de situatie van de patiënt.")
-    confidence_score = metadata["confidence_score"]
-    confidence_level = metadata["confidence_level"]
-
-    if confidence_level == "high" or confidence_score >= THRESHOLDS["confidence"]["high"]:
-        lines.append(f"- ✅ Zelfvertrouwen: {confidence_score}/100 – je klonk zeker en rustig.")
-    elif confidence_level == "medium":
-        lines.append(f"- ⚠️ Zelfvertrouwen: {confidence_score}/100 – nog winst te behalen in rust en overtuiging.")
-    else:
-        lines.append(f"- ❌ Zelfvertrouwen: {confidence_score}/100 – oefen met ademhaling en eye contact.")
-
     filler_ratio = metadata["filler_ratio"]
     filler_tokens = exact_phrases.get("filler_words", [])
     filler_summary = summarize_filler_tokens(filler_tokens)
@@ -1181,7 +1166,7 @@ def build_speech_section(
     if speech_rate > 150:
         lines.append("  → Je sprak vrij snel; iets meer rust helpt de patiënt zich gehoord te voelen.")
     elif speech_rate < 100 and speech_rate > 0:
-        lines.append("  → Je sprak erg langzaam, wat onzeker kan overkomen.")
+        lines.append("  → Je sprak erg langzaam; houd het tempo levendig zodat de patiënt alert blijft.")
     
     lines.append(f"- Tempo-variatie: {metadata['tempo_variation']}%")
     lines.append(f"- Pauzedistributie: {pause_text}")
@@ -1229,11 +1214,6 @@ def build_speech_section(
     if summary:
         lines.append("\n**Interpretatie**")
         lines.append(summary)
-
-    indicators = metadata.get("confidence_indicators") or []
-    if indicators:
-        lines.append("\n**Indicatoren zelfvertrouwen**")
-        lines.extend([f"- {indicator}" for indicator in indicators[:5]])
 
     return "\n".join(lines)
 
@@ -1448,17 +1428,17 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     elif speech_rate > THRESHOLDS["speech_rate"]["fast"]:
         improvements.append("Vertraag bewust door na elke vraag een korte pauze te nemen voor helderheid.")
     if pause_distribution["short"] > THRESHOLDS["pause_short_ratio"] or pause_avg < THRESHOLDS["pause_avg"]["short"]:
-        improvements.append("Kort en veel pauzes kunnen onzekerheid tonen; adem diep uit voordat je reageert.")
+        improvements.append("Veel korte pauzes breken de flow; adem diep uit voordat je reageert.")
     # Rule 2B: Filler reduction action
     if filler_count > 3:
-        improvements.append("Verminder het aantal fillers zoals 'eh', omdat dit onzeker overkomt. Gebruik korte pauzes in plaats van opvulgeluidjes.")
+        improvements.append("Verminder het aantal fillers zoals 'eh', omdat dit de boodschap minder helder maakt. Gebruik korte pauzes in plaats van opvulgeluidjes.")
     elif filler_ratio > THRESHOLDS["filler_ratio"]["medium"]:
         improvements.append("Verminder opvulgeluidjes door steekwoorden vooraf te noteren en rustiger te spreken.")
     elif analysis_flags.get("filler_issue") and analysis_exact.get("filler_words"):
         filler_summary = summarize_filler_tokens(analysis_exact.get("filler_words", []))
         improvements.append(f"Schrap de fillers {filler_summary} uit je vragen; neem een korte stilte in plaats van 'eh'.")
-    if emotion in {"uncertain", "stressed"}:
-        improvements.append("Je klonk wat onzeker; vertraag je ademhaling en vat antwoorden samen om vertrouwen te tonen.")
+    if emotion in {"zoekend", "stressed"}:
+        improvements.append("Je klonk wat zoekend; vertraag je ademhaling en vat antwoorden samen om rust te brengen.")
     if prosody < THRESHOLDS["prosody"]["ok"]:
         improvements.append("Werk aan vocale variatie door sleutelwoorden te benadrukken en toonhoogte licht te variëren.")
     if volume_stability and volume_stability < THRESHOLDS["volume_stability"]:

@@ -1,4 +1,4 @@
 Flask
 requests
-nvidia-cublas-cu13
-nvidia-cudnn-cu13==9.*
+nvidia-cublas-cu13; platform_system == "Linux" and platform_machine == "x86_64"
+nvidia-cudnn-cu13==9.*; platform_system == "Linux" and platform_machine == "x86_64"

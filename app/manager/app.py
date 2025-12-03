@@ -318,9 +318,7 @@ def generate_feedback():
                 response_data["speech_metrics"] = speech_analysis_result.get("metrics", {})
                 response_data["speech_summary"] = speech_analysis_result.get("summary", "")
                 response_data["icon_states"] = speech_analysis_result.get("icon_states", {})
-                response_data["confidence"] = speech_analysis_result.get("confidence", {})
                 print(f"[DEBUG] Added speech metrics to response: {response_data.get('speech_metrics', {})}")
-                print(f"[DEBUG] Added confidence score: {response_data.get('confidence', {})}")
                 print(f"[DEBUG] Added icon states to response: {response_data.get('icon_states', {})}")
             else:
                 print("[DEBUG] No speech_analysis_result available. Speech metrics not included in response.")
