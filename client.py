@@ -197,9 +197,8 @@ def main():
                         print(f"Pauses: {icons.get('pauses', 'N/A')}")
                         print(f"Fillers: {icons.get('fillers', 'N/A')}")
                         print(f"Overall: {icons.get('overall', 'N/A')}")
-                    
                     if "speech_summary" in feedback_json:
-                        print(f"\n=== Speaking Tips Summary ===\n{feedback_json['speech_summary']}")
+                        print(f"\n{feedback_json['speech_summary']}")
                     
                     # Display Gordon pattern analysis if available
                     if "gordon_patterns" in feedback_json:
