@@ -160,7 +160,7 @@ def generate_response():
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt_text, "model": "mistral-small3.2:24b", "stream": False, "think": False}
+            json={"prompt": prompt_text, "model": "ministral-3:14b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")

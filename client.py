@@ -171,6 +171,7 @@ def main():
             if response.headers.get("Content-Type", "").startswith("application/json"):
                 feedback_json = response.json()
                 audio_field = feedback_json.get("audio")
+                print(feedback_json)
                 
                 if audio_field:
                     print("=== Feedback Summary ===")

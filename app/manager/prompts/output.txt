@@ -1,0 +1,34 @@
+run with: ministral-3:14b
+
+manager         | Student: Goedemiddag, mijn naam is Ronnie, hier kan ik u helpen.
+manager         | Avatar: Goedemiddag, Ronnie. Fijn dat u er bent. Ik hoop dat we elkaar goed kunnen leren kennen.
+manager         | Student: Jazeker, mijn naam is Ronnie. Kunt u me vertellen wat je geschiedenis is?
+manager         | Avatar: Goedemiddag, Ronnie. Ik ben Zoe de Regt, 83 jaar oud. Ik woon zelfstandig, maar heb sinds mijn urineweginfectie en delier meer hulp nodig bij dagelijkse taken zoals wassen en medicatie. Mijn zoon heeft dit gesprek geregeld.
+manager         | Student: Ja, ik ben Ronnie. Wil je alsjeblieft even vertellen wat jouw medicijnengegevens zijn?  Wat neemt u medicijnen en waarvoor?
+manager         | Avatar: Goed, ik neem momenteel **Temazepam 10 mg** om in slaap te vallen. Daarnaast heb ik geen andere medicijnen, maar ik weet dat ik na de urineweginfectie antibiotica heb gebruikt. Mijn zoon houdt toezicht op mijn medicatie.
+manager         | Student: En u neemt deze medicijnen al best lang, dit is niet recent dat u deze neemt.
+manager         | Avatar: Goed, de Temazepam neem ik al een tijdje, sinds ik last had van slapeloosheid. Ik volg het precies zoals mijn dokter heeft voorgeschreven.
+manager         | Student: En u zegt dat uw zoon u helpt met de medicijnen.  Doet u heel veel dingen nog zelfstandig of bent u afhankelijk van andere mensen?
+manager         | Avatar: Ik doe nog wel veel zelfstandig, zoals eten en toiletgang. Maar voor wassen, aankleden en medicatie heb ik hulp nodig. Ook gebruik ik een rollator om te lopen.
+manager         | Student: Woont u nog op zichzelf?
+manager         | Avatar: Ja, ik woon nog zelfstandig, maar met wat extra ondersteuning van mijn zoon en af en toe hulp bij dagelijkse taken.
+manager         | Student: Wat ik had begrepen van uw zoon is dat u dit gesprek voornamelijk wil dat u meer assistentie hebt bij het zelfstandigheid van het wonen, correct?
+manager         | Avatar: Ja, dat klopt. Ik wil graag zo zelfstandig mogelijk blijven, maar ik heb nu meer hulp nodig bij taken zoals wassen, aankleden en medicatie. Ook zou ik me veiliger voelen met iemand die me in de gaten houdt.
+manager         | Student: Geen zorgen mevrouw, uw veiligheid is ons nummer 1 prioriteit.  Dat zal geen goede zorgen moeten leveren voor u.  Hopelijk kunnen we daar u op gerust stellen.
+manager         | Avatar: Goed, Ronnie. Dat is fijn om te horen. Ik voel me al een stuk geruster nu we dit gesprek hebben. Ik hoop dat we samen een goede oplossing kunnen vinden voor mijn dagelijkse ondersteuning.
+manager         | Student: Oké, dan los van het wassen, aankleden en de medicatie, zijn er andere dingen waar u in de toekomst waarschijnlijk hulp voor nodig zou moeten hebben?  Zoals, laten we zeggen, boodschappen of winkelen.
+manager         | Avatar: Ik doe boodschappen nog met mijn zoon of vrienden, maar soms zou ik graag zelfstandiger willen zijn. Ik zou hulp kunnen gebruiken bij het dragen van boodschappen naar huis, omdat ik met mijn rollator niet alles tegelijk kan doen.
+manager         | Student: Hoe ruist u voornamelijk qua vervoerder? Vraagt u daar ook voor om hulp? Gebruikt u het OV? Hoe zit dat?
+manager         | Avatar: Ik gebruik meestal mijn rollator om rond te lopen, maar voor grotere afstanden of naar de winkel ga ik met mijn zoon of vrienden. Ik heb geen OV-kaart meer, want ik ben niet meer zo mobiel.
+manager         | Student: Wilt u dat wij voor in de toekomst ook rekening gaan houden met uw vervoer voor die assistentie of wilt u dat liever zelf regelen?
+manager         | Avatar: Ik zou graag hulp willen bij vervoer als dat mogelijk is, vooral voor afspraken of als ik niet zelf met mijn rollator kan. Mijn zoon regelt dat nu, maar soms zou ik zelfstandiger willen zijn.
+manager         | Student: Gelukkig voor u doen wij ook op huis afspraken, dus dat wij gewoon langs uw adres komen.  Dat scheelt u voor voor.  Voor ons kunnen we ook een beetje kijken en kennis maken met uw thuis situatie.  Hoe ziet u daarin zien zitten?
+manager         | Avatar: Ik vind het een goed plan dat u langs komt. Dat zou me veel hulp bieden, vooral als ik niet zelf naar buiten kan. Ik woon op de begane grond, dus dat is handig voor bezoek. Mijn zoon kan u de weg wijzen als u nodig heeft.
+manager         | Student: Het zou misschien ook handig zijn als uw zoon aanwezig bent bij het gesprek.  Een ander perspectief zou handig kunnen zijn.
+manager         | Avatar: Ik vind het een goed idee als mijn zoon meelui, hij kent mijn situatie het beste. Hij kan u vertellen wat ik dagelijks nodig heb en hoe hij mij nu ondersteunt. Ik bel hem even om te vragen of hij kan komen.
+manager         | Student: Oké, dat is mooi. Dus voor onze volgende afspraak kan hij aanwezig zijn.  Heeft u nog verder antwoorden voordat we dit gesprek afsluiten?
+manager         | Avatar: Ik bel mijn zoon even om te vragen of hij kan komen. Mag ik even even naar mijn telefoon? Ik kom zo terug.
+manager         | Student: Sorry mevrouw, maar hij heeft hier helaas geen bereik.  Kunt u wel via de landlijn proberen?
+manager         | Avatar: Nee, ik heb geen landlijn meer. Ik gebruik alleen mijn mobiele telefoon. Mijn zoon is meestal binnen een halfuur bereikbaar als ik hem bel. Mag ik even wachten?
+manager         | Student: ...heeft geen haast mevrouw, dus we kunnen het de volgende keer gewoon regelen. Is dat oké?
+manager         | Nee, dat is prima. Ik kan wachten tot mijn zoon bereikbaar is. Ik bel hem zo snel mogelijk. Mag ik even even op mijn telefoon kijken?         

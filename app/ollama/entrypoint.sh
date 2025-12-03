@@ -1,6 +1,6 @@
 #!/bin/sh
-
-CONVERSATION_MODEL="mistral-small3.2:24b"
+# "mistral-small3.2:24b"
+CONVERSATION_MODEL="ministral-3:14b"
 FEEDBACK_MODEL="qwen3:32b"
 
 pip install -r requirements.txt --break-system-packages
