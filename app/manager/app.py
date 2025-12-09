@@ -5,7 +5,7 @@ from sqlite import init_db
 from user_management import ensure_user, validation
 from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
-from feedback_formatter import format_student_feedback
+from feedback_formatter import format_student_feedback, print_feedback_to_terminal
 from config import ENABLE_SPEECH_ANALYSIS
 from emailsender import send_email
 import os
@@ -64,15 +64,17 @@ def request_handling():
         elif not username:
             return jsonify({"error [/general]": "Email is required."}), 400
         elif not validation(username):
-            return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400    
+            return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
 
-    if scenario == '1':
-        voice_model = "Kumar Dahl"
-    elif scenario == '2':
+    print(type(scenario))
+
+    if scenario == 1:
+        voice_model = "Annmarie Nele"
+    elif scenario == 2:
         voice_model = "Wulf Carlevaro"
-    elif scenario == '3':
-        voice_model = "Luis Moray"
-    elif scenario == '4':
+    elif scenario == 3:
+        voice_model = "Camilla Holmström"
+    elif scenario == 4:
         voice_model = "Filip Traverse"
     else:
         voice_model = "Damien Black"
@@ -160,7 +162,7 @@ def generate_response():
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt_text, "model": "ministral-3:14b", "stream": False, "think": False}
+            json={"prompt": prompt_text, "model": "gemma3:27b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
@@ -296,7 +298,6 @@ def generate_feedback():
         #    print("There was an issue sending the email.")
 
         # Temporary fix for email function
-        print(f"Sending email to: {username} Content: {formatted_feedback}")
         
         feedback_text = (formatted_feedback or {}).get("text")
         structured_feedback = (formatted_feedback or {}).get("structured", {})
@@ -312,6 +313,9 @@ def generate_feedback():
                 "audio": audio_b64,
                 "structured_feedback": structured_feedback
             }
+
+            print("\n=== FEEDBACK FOR USER:", username, "===")
+            print_feedback_to_terminal(response_data)
             
             # Add speech metrics and icon states if available
             if speech_analysis_result:
