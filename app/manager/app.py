@@ -66,20 +66,6 @@ def request_handling():
         elif not validation(username):
             return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
 
-    print(type(scenario))
-
-    if scenario == 1:
-        voice_model = "Annmarie Nele"
-    elif scenario == 2:
-        voice_model = "Wulf Carlevaro"
-    elif scenario == 3:
-        voice_model = "Camilla Holmström"
-    elif scenario == 4:
-        voice_model = "Filip Traverse"
-    else:
-        voice_model = "Damien Black"
-
-    # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
     stt_json = stt_resp.json()
     transcription_text = stt_json.get("transcript", "")
@@ -101,7 +87,6 @@ def request_handling():
             "username": username,
             "transcript": transcription_text,
             "scenario": scenario,
-            "voice": voice_model,
             "transcript_details": transcript_details,
             "audio_duration": audio_duration
         })
@@ -111,7 +96,6 @@ def request_handling():
         feedback_resp = requests.post(FEEDBACK_URL, json={
             "username": username,
             "scenario": scenario,
-            "voice": voice_model
         })
         feedback_json = feedback_resp.json()
         # Return full feedback response including speech_metrics and icon_states
@@ -124,7 +108,6 @@ def generate_response():
     username = data.get("username")
     transcript = data.get("transcript")
     scenario = data.get("scenario")
-    voice = data.get("voice")
     transcript_details = data.get("transcript_details", {})
     audio_duration = data.get("audio_duration", 0)
 
@@ -171,7 +154,7 @@ def generate_response():
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
-            tts_resp = requests.post(TTS_URL, json={"text": response_text, "voice": voice})
+            tts_resp = requests.post(TTS_URL, json={"text": response_text, "scenario": scenario})
             audio_b64 = tts_resp.json().get("audio")
             return jsonify({"response": response_text, "audio": audio_b64})
 
@@ -304,7 +287,7 @@ def generate_feedback():
         closing_prompt = "Bedankt voor je inzet. Hier zijn mijn observaties van hoe het gesprek is gelopen."
 
         if feedback_text:
-            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "voice": voice})
+            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "scenario": scenario})
             audio_b64 = tts_resp.json().get("audio")
 
             # Prepare response
