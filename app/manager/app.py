@@ -5,16 +5,15 @@ from sqlite import init_db
 from user_management import ensure_user, validation
 from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
-from feedback_formatter import format_student_feedback
+from feedback_formatter import format_student_feedback, print_feedback_to_terminal
 from config import ENABLE_SPEECH_ANALYSIS
 from emailsender import send_email
 import os
 import time
 import logging
 import base64
-import formatter import pretty_print_json
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 
 def strip_avatar_prefix(text: str) -> str:
@@ -67,20 +66,19 @@ def request_handling():
         elif not validation(username):
             return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
 
-    print(type(scenario))
+    try:
+        scenario_int = int(scenario)
+    except (TypeError, ValueError):
+        scenario_int = None
 
-    if scenario == 1:
-        voice_model = "Annmarie Nele"
-    elif scenario == 2:
-        voice_model = "Wulf Carlevaro"
-    elif scenario == 3:
-        voice_model = "Camilla Holmström"
-    elif scenario == 4:
-        voice_model = "Filip Traverse"
-    else:
-        voice_model = "Damien Black"
+    voice_mapping = {
+        1: "Annmarie Nele",
+        2: "Wulf Carlevaro",
+        3: "Camilla Holmström",
+        4: "Filip Traverse"
+    }
+    voice_model = voice_mapping.get(scenario_int, "Damien Black")
 
-    # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
     stt_json = stt_resp.json()
     transcription_text = stt_json.get("transcript", "")
@@ -314,6 +312,9 @@ def generate_feedback():
                 "audio": audio_b64,
                 "structured_feedback": structured_feedback
             }
+
+            print("\n=== FEEDBACK FOR USER:", username, "===")
+            print_feedback_to_terminal(response_data)
             
             # Add speech metrics and icon states if available
             if speech_analysis_result:
@@ -348,6 +349,6 @@ def generate_feedback():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Ollama error: {e}"}), 500
 
-if _name_ == '_main_':
+if __name__ == '__main__':
     init_db()
     app.run(host='0.0.0.0', port=8000)

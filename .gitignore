@@ -4,3 +4,5 @@ __pycache__
 output.wav
 chat.db
 .env
+ollama/models
+feedback-from-student-demo.md

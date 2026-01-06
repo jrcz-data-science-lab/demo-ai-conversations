@@ -22,14 +22,27 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
 DEFAULT_SPEAKER = tts.speakers[0] if hasattr(tts, "speakers") and tts.speakers else None
 AVAILABLE_SPEAKERS = set(tts.speakers or [])
- 
+
 @app.post('/speech')
 def speech():
     data = request.get_json()
     text = data.get("text")
-    requested_speaker = data.get("voice")
+    scenario = data.get("scenario")
     if not text:
         return jsonify({"error": "Missing text"}), 400
+    
+    if scenario == 1:
+        requested_speaker = "Claribel Dervla"
+        voice_speed = 0.9
+    elif scenario == 2:
+        requested_speaker = "Wulf Carlevaro"
+        voice_speed = 1
+    elif scenario == 3:
+        requested_speaker = "Henriette Usha"
+        voice_speed = 0.9
+    else:
+        requested_speaker = "Damien Black"
+        voice_speed = 1
 
     # Map requested speaker to a valid XTTS speaker id; fallback to model default
     speaker = requested_speaker if requested_speaker in AVAILABLE_SPEAKERS else DEFAULT_SPEAKER
@@ -40,7 +53,7 @@ def speech():
 
     try:
         # Generate speech and save to the temporary file (avoid invalid speaker ids that trigger CUDA asserts)
-        tts.tts_to_file(text=text, speaker=speaker, language="nl", file_path=tmp_path)
+        tts.tts_to_file(text=text, speaker=speaker, language="nl", file_path=tmp_path, speed=0.9)
 
         # Read the audio back into memory
         with open(tmp_path, "rb") as f:

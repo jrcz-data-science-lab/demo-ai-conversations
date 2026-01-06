@@ -1,4 +1,4 @@
-FROM ollama/ollama:0.13.1
+FROM ollama/ollama:latest
 
 WORKDIR /app
 

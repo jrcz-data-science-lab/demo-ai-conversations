@@ -7,6 +7,7 @@ services:
       - "11434:11434"
     volumes:
       - ./app/ollama:/app
+      - ./ollama/models:/root/.ollama
     networks:
       - ai_pipeline_net
     runtime: nvidia
