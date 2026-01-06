@@ -12,8 +12,9 @@ import os
 import time
 import logging
 import base64
+import formatter import pretty_print_json
 
-app = Flask(__name__)
+app = Flask(_name_)
 
 
 def strip_avatar_prefix(text: str) -> str:
@@ -64,15 +65,17 @@ def request_handling():
         elif not username:
             return jsonify({"error [/general]": "Email is required."}), 400
         elif not validation(username):
-            return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400    
+            return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
 
-    if scenario == '1':
-        voice_model = "Kumar Dahl"
-    elif scenario == '2':
+    print(type(scenario))
+
+    if scenario == 1:
+        voice_model = "Annmarie Nele"
+    elif scenario == 2:
         voice_model = "Wulf Carlevaro"
-    elif scenario == '3':
-        voice_model = "Luis Moray"
-    elif scenario == '4':
+    elif scenario == 3:
+        voice_model = "Camilla Holmström"
+    elif scenario == 4:
         voice_model = "Filip Traverse"
     else:
         voice_model = "Damien Black"
@@ -160,7 +163,7 @@ def generate_response():
     try:
         ollama_response = requests.post(
             OLLAMA_URL,
-            json={"prompt": prompt_text, "model": "ministral-3:14b", "stream": False, "think": False}
+            json={"prompt": prompt_text, "model": "gemma3:27b", "stream": False, "think": False}
         )
         ollama_response.raise_for_status()
         response_text = ollama_response.json().get("response", "")
@@ -296,7 +299,6 @@ def generate_feedback():
         #    print("There was an issue sending the email.")
 
         # Temporary fix for email function
-        print(f"Sending email to: {username} Content: {formatted_feedback}")
         
         feedback_text = (formatted_feedback or {}).get("text")
         structured_feedback = (formatted_feedback or {}).get("structured", {})
@@ -338,6 +340,7 @@ def generate_feedback():
             
             clear_history(username)
 
+            print("Full response:", response_data["structured_feedback"])
             return jsonify(response_data)
 
         return jsonify({"error": "Empty feedback response"}), 500
@@ -345,6 +348,6 @@ def generate_feedback():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Ollama error: {e}"}), 500
 
-if __name__ == '__main__':
+if _name_ == '_main_':
     init_db()
     app.run(host='0.0.0.0', port=8000)
