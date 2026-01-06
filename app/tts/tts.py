@@ -27,22 +27,32 @@ AVAILABLE_SPEAKERS = set(tts.speakers or [])
 def speech():
     data = request.get_json()
     text = data.get("text")
-    scenario = data.get("scenario")
+    scenario_raw = data.get("scenario")
+    voice = data.get("voice")
     if not text:
         return jsonify({"error": "Missing text"}), 400
     
-    if scenario == 1:
-        requested_speaker = "Claribel Dervla"
-        voice_speed = 0.9
-    elif scenario == 2:
-        requested_speaker = "Wulf Carlevaro"
+    try:
+        scenario = int(scenario_raw)
+    except (TypeError, ValueError):
+        scenario = scenario_raw
+
+    if voice:
+        requested_speaker = voice
         voice_speed = 1
-    elif scenario == 3:
-        requested_speaker = "Henriette Usha"
-        voice_speed = 0.9
     else:
-        requested_speaker = "Damien Black"
-        voice_speed = 1
+        if scenario == 1:
+            requested_speaker = "Claribel Dervla"
+            voice_speed = 0.9
+        elif scenario == 2:
+            requested_speaker = "Wulf Carlevaro"
+            voice_speed = 1
+        elif scenario == 3:
+            requested_speaker = "Henriette Usha"
+            voice_speed = 0.9
+        else:
+            requested_speaker = "Damien Black"
+            voice_speed = 1
 
     # Map requested speaker to a valid XTTS speaker id; fallback to model default
     speaker = requested_speaker if requested_speaker in AVAILABLE_SPEAKERS else DEFAULT_SPEAKER
@@ -53,7 +63,7 @@ def speech():
 
     try:
         # Generate speech and save to the temporary file (avoid invalid speaker ids that trigger CUDA asserts)
-        tts.tts_to_file(text=text, speaker=speaker, language="nl", file_path=tmp_path, speed=0.9)
+        tts.tts_to_file(text=text, speaker=speaker, language="nl", file_path=tmp_path, speed=voice_speed)
 
         # Read the audio back into memory
         with open(tmp_path, "rb") as f:

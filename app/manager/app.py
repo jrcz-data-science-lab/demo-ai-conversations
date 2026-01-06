@@ -52,7 +52,11 @@ def request_handling():
     data = request.json
     username = data.get("username")
     audio_in = data.get("audio")
-    scenario = data.get("scenario")
+    scenario_raw = data.get("scenario")
+    try:
+        scenario = int(scenario_raw)
+    except (TypeError, ValueError):
+        scenario = scenario_raw
     feedback_request = data.get("feedback", False)
 
     # Validate inputs before continuing
@@ -66,19 +70,20 @@ def request_handling():
         elif not validation(username):
             return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
 
-    try:
-        scenario_int = int(scenario)
-    except (TypeError, ValueError):
-        scenario_int = None
+    print(type(scenario))
 
-    # voice_mapping = {
-    #     1: "Annmarie Nele",
-    #     2: "Wulf Carlevaro",
-    #     3: "Camilla Holmström",
-    #     4: "Filip Traverse"
-    # }
-    # voice_model = voice_mapping.get(scenario_int, "Damien Black")
+    if scenario == 1:
+        voice_model = "Annmarie Nele"
+    elif scenario == 2:
+        voice_model = "Wulf Carlevaro"
+    elif scenario == 3:
+        voice_model = "Camilla Holmström"
+    elif scenario == 4:
+        voice_model = "Filip Traverse"
+    else:
+        voice_model = "Damien Black"
 
+    # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
     stt_json = stt_resp.json()
     transcription_text = stt_json.get("transcript", "")
@@ -100,6 +105,7 @@ def request_handling():
             "username": username,
             "transcript": transcription_text,
             "scenario": scenario,
+            "voice": voice_model,
             "transcript_details": transcript_details,
             "audio_duration": audio_duration
         })
@@ -109,6 +115,7 @@ def request_handling():
         feedback_resp = requests.post(FEEDBACK_URL, json={
             "username": username,
             "scenario": scenario,
+            "voice": voice_model
         })
         feedback_json = feedback_resp.json()
         # Return full feedback response including speech_metrics and icon_states
@@ -121,6 +128,7 @@ def generate_response():
     username = data.get("username")
     transcript = data.get("transcript")
     scenario = data.get("scenario")
+    voice = data.get("voice")
     transcript_details = data.get("transcript_details", {})
     audio_duration = data.get("audio_duration", 0)
 
@@ -167,7 +175,7 @@ def generate_response():
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
-            tts_resp = requests.post(TTS_URL, json={"text": response_text, "scenario": scenario})
+            tts_resp = requests.post(TTS_URL, json={"text": response_text, "scenario": scenario, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
             return jsonify({"response": response_text, "audio": audio_b64})
 
@@ -181,6 +189,7 @@ def generate_feedback():
     data = request.json
     username = data.get("username")
     scenario = data.get("scenario")
+    voice = data.get("voice")
 
     if not username or not scenario:
         return jsonify({"error": "Missing username or scenario"}), 400
@@ -299,7 +308,7 @@ def generate_feedback():
         closing_prompt = "Bedankt voor je inzet. Hier zijn mijn observaties van hoe het gesprek is gelopen."
 
         if feedback_text:
-            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "scenario": scenario})
+            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "scenario": scenario, "voice": voice})
             audio_b64 = tts_resp.json().get("audio")
 
             # Prepare response
@@ -345,6 +354,6 @@ def generate_feedback():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": f"Ollama error: {e}"}), 500
 
-if __name__ == '__main__':
+if _name_ == '_main_':
     init_db()
     app.run(host='0.0.0.0', port=8000)
