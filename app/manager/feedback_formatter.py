@@ -4,6 +4,13 @@ Advanced formatter: produce structured, metric-driven feedback for nursing stude
 
 import re
 from typing import Any, Dict, List, Optional, Tuple
+from app.manager.phase_detection import (
+    DEFAULT_PHASE_CONFIG,
+    analyze_conversation_phases,
+    detect_gordon_patterns,
+    looks_like_question,
+    render_phase_feedback,
+)
 
 # Threshold configuration lives here to keep logic easy to tune.
 THRESHOLDS = {
@@ -29,26 +36,33 @@ NAME_PATTERN = re.compile(
     r"\b(?:mevrouw|meneer|mw\.|dhr\.|mevr\.|pati[eë]nt)\s+[A-Z][a-z]+(?:\s[A-Z][a-z]+)?",
     re.IGNORECASE,
 )
+STUDENT_LINE = re.compile(r"^\s*student\b.*?:", re.IGNORECASE)
 PHONE_PATTERN = re.compile(r"\b(?:\+?\d[\d\-\s]{7,}\d)\b")
 ADDRESS_PATTERN = re.compile(
-    r"\b\d{2,4}\s?(?:[A-Za-z]{2})?\s?(?:straat|laan|weg|dreef|road|rd|st|ave)\b",
+    r"(?:\b\d{1,4}[A-Za-z]?(?:-\d{1,2})?\s?(?:[A-Za-z]{2})?\s?(?:straat|laan|weg|dreef|road|rd|st|ave)\b)|"
+    r"(?:\b[A-Za-z]{2,}\s(?:straat|laan|weg|dreef|road|rd|st|ave)\s?\d{1,4}[A-Za-z]?(?:-\d{1,2})?\b)",
     re.IGNORECASE,
 )
+POSTCODE_PATTERN = re.compile(r"\b\d{4}\s?[A-Z]{2}\b", re.IGNORECASE)
 
 # Quick reference questions per Gordon-patroon to make follow-ups concrete.
 PATTERN_QUESTIONS = {
     # English labels (from GORDON_PATTERNS).
     "Health Perception / Management": "Hoe ervaart u uw gezondheid op dit moment en welke zorg gebruikt u?",
+    "Health Perception–Health Management": "Hoe ervaart u uw gezondheid op dit moment en welke zorg gebruikt u?",
     "Nutritional–Metabolic": "Hoe gaat het met eten en drinken; heeft u genoeg eetlust?",
     "Elimination": "Kunt u vertellen hoe het gaat met plassen en ontlasting?",
     "Activity–Exercise": "Hoe mobiel voelt u zich en wat lukt er in huis qua bewegen?",
     "Sleep–Rest": "Hoe slaapt u de laatste tijd en wordt u uitgerust wakker?",
     "Cognitive–Perceptual": "Merkt u veranderingen in uw geheugen, concentratie of waarneming?",
     "Self-Perception / Self-Concept": "Hoe voelt u zich over uzelf sinds de klachten zijn begonnen?",
+    "Self-Perception–Self-Concept": "Hoe voelt u zich over uzelf sinds de klachten zijn begonnen?",
     "Role–Relationship": "Wie ondersteunt u thuis en hoe verloopt dat voor u?",
+    "Roles–Relationships": "Wie ondersteunt u thuis en hoe verloopt dat voor u?",
     "Sexuality–Reproductive": "Heeft de situatie invloed op intimiteit of relaties?",
     "Coping–Stress Tolerance": "Wat doet u als het even tegenzit en wat helpt u te ontspannen?",
     "Values–Belief": "Zijn er overtuigingen of waarden die we moeten meenemen in uw zorg?",
+    "Values–Beliefs": "Zijn er overtuigingen of waarden die we moeten meenemen in uw zorg?",
     # Dutch labels (defaults in metadata).
     "Gezondheidsbeleving": "Hoe ervaart u uw gezondheid op dit moment en welke zorg gebruikt u?",
     "Voeding": "Hoe gaat het met eten en drinken; heeft u genoeg eetlust?",
@@ -72,7 +86,7 @@ ASSESSMENT_ICONS = {
 
 # Comprehension gap phrases that claim understanding but don't demonstrate it
 # Both Dutch and English phrases
-# These phrases are INAPPROPRIATE when speaking to someone older - students cannot claim to "understand" them
+# These phrases kunnen het gesprek te snel afsluiten als ze niet gevolgd worden door parafrase of checkvraag.
 COMPREHENSION_GAP_PHRASES = [
     # Dutch phrases
     "ik begrijp het",
@@ -181,6 +195,7 @@ COMPREHENSION_GAP_PHRASES = [
     "makes sense",
     "that makes sense",
 ]
+COMPREHENSION_GAP_PHRASES = list(dict.fromkeys([p.strip() for p in COMPREHENSION_GAP_PHRASES if p.strip()]))
 
 # Heuristics to spot (perceived) understanding, paraphrasing, and confusion.
 UNDERSTANDING_CUES = [
@@ -207,6 +222,25 @@ UNDERSTANDING_CUES = [
     "understood",
     "clear",
     "okay",
+]
+
+# Explicit understanding claims (used to trigger gaps when unsupported)
+UNDERSTANDING_CLAIM_CUES = [
+    "ik begrijp het",
+    "ik snap het",
+    "ik begrijp u",
+    "ik begrijp je",
+    "ik snap u",
+    "ik snap je",
+    "i understand",
+    "i get it",
+    "got it",
+    "that makes sense",
+    "it makes sense",
+    "okay i understand",
+    "ok i understand",
+    "okay got it",
+    "ok got it",
 ]
 PARAPHRASE_CUES = [
     # Dutch
@@ -243,8 +277,6 @@ CHECKVRAAG_CUES = [
     "heb ik het goed begrepen",
     "is dat correct",
     "is dat juist",
-    "vraag",
-    "?",
     # English
     "did i understand correctly",
     "is that correct",
@@ -288,16 +320,19 @@ ANALYSIS_SUMMARY_CUES = ["samenvattend", "kortom", "samengevat", "als ik het goe
 EMPATHY_CUES = ["spijtig", "sorry", "vervelend", "kan me voorstellen", "lijkt lastig", "klinkt moeilijk"]
 
 
-def scrub_text(text: Optional[str]) -> str:
+def scrub_text(text: Optional[Any]) -> str:
     """
     Remove potential identifying details from any string content.
     """
-    if not text:
+    if text is None:
         return ""
+    if not isinstance(text, str):
+        text = str(text)
 
     cleaned = NAME_PATTERN.sub("[patiënt]", text)
     cleaned = PHONE_PATTERN.sub("[privé-nummer]", cleaned)
     cleaned = ADDRESS_PATTERN.sub("[adres verwijderd]", cleaned)
+    cleaned = POSTCODE_PATTERN.sub("[postcode verwijderd]", cleaned)
     cleaned = re.sub(r"\b\d{9}\b", "[id verwijderd]", cleaned)
     return cleaned.strip()
 
@@ -311,8 +346,8 @@ def extract_student_messages(conversation_history: Optional[str]) -> List[str]:
 
     messages: List[str] = []
     for line in conversation_history.splitlines():
-        if line.strip().startswith("Student:"):
-            message = line.split("Student:", 1)[1].strip()
+        if STUDENT_LINE.match(line):
+            message = line.split(":", 1)[1].strip()
             if message:
                 messages.append(message)
     return messages
@@ -330,6 +365,52 @@ def split_student_sentences(student_messages: List[str]) -> List[str]:
             if trimmed:
                 sentences.append(trimmed)
     return sentences
+
+
+def conversation_history_to_turns(conversation_history: Optional[str]) -> List[Dict[str, Any]]:
+    """
+    Convert stored history string ("Speaker: text") into structured turns.
+    """
+    if not conversation_history:
+        return []
+    turns: List[Dict[str, Any]] = []
+    for line in conversation_history.splitlines():
+        if ":" not in line:
+            continue
+        speaker_raw, text = line.split(":", 1)
+        speaker_norm = speaker_raw.strip().lower()
+        speaker_label = "student" if speaker_norm.startswith("student") else "patient"
+        turns.append({"speaker": speaker_label, "text": text.strip()})
+    return turns
+
+
+def gordon_stub_from_detection(gordon_detected: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """
+    Convert deterministic Gordon detection output to the shape expected by metadata builder.
+    """
+    if not gordon_detected:
+        return None
+    patterns = gordon_detected.get("patterns", {}) or {}
+    mentioned = []
+    missing = []
+    pattern_details: Dict[str, Dict[str, Any]] = {}
+    for pid, pdata in patterns.items():
+        name = pdata.get("name") or pid
+        pattern_details[pid] = {"name": name}
+        if pdata.get("covered"):
+            mentioned.append(name)
+        else:
+            missing.append(name)
+
+    return {
+        "coverage_percentage": gordon_detected.get("coverage_percent", 0.0),
+        "covered_patterns": gordon_detected.get("covered_count", 0),
+        "total_patterns": gordon_detected.get("total_patterns", 11),
+        "mentioned_patterns": mentioned,
+        "missing_patterns": missing,
+        "pattern_details": pattern_details,
+        "summary": "",
+    }
 
 
 def summarize_filler_tokens(filler_tokens: List[str]) -> str:
@@ -370,7 +451,7 @@ def build_conversation_analysis_block(
         "extracted_examples": {
             "understanding_examples": [],
             "filler_examples": [],
-            "abrubt_ending_examples": [],
+            "abrupt_ending_examples": [],
         },
         "summary_findings": {
             "pattern_coverage": 0,
@@ -431,9 +512,11 @@ def build_conversation_analysis_block(
         cleaned = re.sub(r"^[^a-zA-Z0-9]+", "", sentence.strip().lower())
         if not cleaned:
             continue
-        if any(cleaned.startswith(prefix + " ") or cleaned == prefix for prefix in ANALYSIS_OPEN_QUESTION_PREFIXES):
+        is_open = any(cleaned.startswith(prefix + " ") or cleaned == prefix for prefix in ANALYSIS_OPEN_QUESTION_PREFIXES)
+        is_closed = any(cleaned.startswith(prefix + " ") or cleaned == prefix for prefix in ANALYSIS_CLOSED_QUESTION_PREFIXES)
+        if is_open:
             analysis_block["exact_phrases_used"]["open_questions"].append(sentence)
-        if any(cleaned.startswith(prefix + " ") or cleaned == prefix for prefix in ANALYSIS_CLOSED_QUESTION_PREFIXES):
+        elif is_closed:
             analysis_block["exact_phrases_used"]["closed_questions"].append(sentence)
 
     # Pass 3: comprehension claims and gaps
@@ -480,7 +563,7 @@ def build_conversation_analysis_block(
             if not nearby_summary:
                 analysis_block["flags"]["abrupt_ending_issue"] = True
                 abrupt_examples.append(sentence)
-    analysis_block["extracted_examples"]["abrubt_ending_examples"] = abrupt_examples
+    analysis_block["extracted_examples"]["abrupt_ending_examples"] = abrupt_examples
 
     # Issue summary
     issues: List[str] = []
@@ -498,10 +581,71 @@ def build_conversation_analysis_block(
     return analysis_block
 
 
+def _normalize_for_match(s: str) -> str:
+    s = s.lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _normalize_no_punct(s: str) -> str:
+    s = _normalize_for_match(s)
+    s = re.sub(r"[^\w\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def find_exact_phrases(messages: List[str], phrases: List[str]) -> List[Tuple[str, int]]:
+    """
+    Find phrases used and their message index.
+    Robust to punctuation differences by normalizing both message and phrase to no-punct.
+    """
+    found: List[Tuple[str, int]] = []
+    seen = set()
+
+    if not phrases:
+        return []
+
+    phrase_norm_map = []
+    for p in phrases:
+        p_no_punct = _normalize_no_punct(p)
+        if not p_no_punct:
+            continue
+        phrase_norm_map.append((p, p_no_punct, p_no_punct.split()))
+
+    for idx, msg in enumerate(messages):
+        msg_norm = _normalize_for_match(msg)
+        msg_no_punct = _normalize_no_punct(msg)
+
+        for original_phrase, phrase_no_punct, words in phrase_norm_map:
+            if not words:
+                continue
+            key = (phrase_no_punct, idx)
+            if key in seen:
+                continue
+
+            # Single-word phrases: match on word boundary in either normalized form
+            if len(words) == 1:
+                w = re.escape(words[0])
+                if re.search(rf"\b{w}\b", msg_no_punct, flags=re.IGNORECASE) or re.search(
+                    rf"\b{w}\b", msg_norm, flags=re.IGNORECASE
+                ):
+                    found.append((original_phrase, idx))
+                    seen.add(key)
+                continue
+
+            pattern = r"\b" + r"(?:\s|[^\w])+".join(map(re.escape, words)) + r"\b"
+            if re.search(pattern, msg_no_punct, flags=re.IGNORECASE) or re.search(
+                pattern, msg_norm, flags=re.IGNORECASE
+            ):
+                found.append((original_phrase, idx))
+                seen.add(key)
+
+    return found
+
+
 def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Spot gaps between claimed understanding and demonstrated understanding.
-    Detects comprehension gap phrases and checks if they're followed by paraphrases or checkvragen.
+    Detect: student claims understanding WITHOUT demonstrating it via paraphrase or checkvraag within same/next 2 messages.
     """
     student_messages = extract_student_messages(conversation_history)
     if not student_messages:
@@ -509,205 +653,111 @@ def analyze_understanding_gaps(conversation_history: Optional[str], metadata: Di
             "gap_detected": False,
             "reasons": [],
             "exact_phrases": [],
+            "gap_issues": [],
             "summary": "Geen studentuitspraken beschikbaar om begrip te toetsen.",
             "student_messages": 0,
             "understanding_statements": 0,
             "paraphrase_attempts": 0,
+            "checkvraag_attempts": 0,
             "followup_questions": 0,
             "confusion_signals": 0,
         }
 
-    lower_messages = [msg.lower() for msg in student_messages]
+    lower_messages = [_normalize_for_match(m) for m in student_messages]
 
     def count_cues(cues: List[str]) -> int:
-        return sum(1 for msg in lower_messages for cue in cues if cue in msg)
+        total = 0
+        for msg in student_messages:
+            msg_norm = _normalize_no_punct(msg)
+            for cue in cues:
+                cue_norm = _normalize_no_punct(cue)
+                if not cue_norm:
+                    continue
+                if len(cue_norm.split()) == 1 and len(cue_norm) <= 4:
+                    if re.search(rf"\b{re.escape(cue_norm)}\b", msg_norm):
+                        total += 1
+                else:
+                    if cue_norm in msg_norm:
+                        total += 1
+        return total
 
-    def find_exact_phrases(messages: List[str], phrases: List[str]) -> List[Tuple[str, int]]:
-        """Find exact phrases used and their message index. Uses flexible matching to catch variations in both Dutch and English."""
-        found = []
-        found_set = set()  # Track (phrase, idx) to avoid duplicates
-        
-        for idx, msg in enumerate(messages):
-            # Normalize the message: lowercase, remove extra whitespace, normalize punctuation
-            msg_lower = msg.lower().strip()
-            msg_normalized = re.sub(r'\s+', ' ', msg_lower)  # Multiple spaces to single space
-            # Keep punctuation for word boundary matching
-            msg_for_matching = msg_normalized
-            
-            for phrase in phrases:
-                # Skip if already found this phrase in this message
-                if (phrase, idx) in found_set:
-                    continue
-                    
-                phrase_lower = phrase.lower().strip()
-                
-                # Strategy 1: Exact match (handles cases where message IS the phrase)
-                if phrase_lower == msg_normalized:
-                    found.append((phrase, idx))
-                    found_set.add((phrase, idx))
-                    continue
-                
-                # Strategy 2: Word boundary matching (most reliable)
-                # Create pattern with word boundaries to match whole phrases
-                phrase_words = re.split(r'[\s,]+', phrase_lower.strip())
-                phrase_pattern = r'\b' + r'\s*[\s,]*'.join([re.escape(word) for word in phrase_words if word]) + r'\b'
-                
-                if re.search(phrase_pattern, msg_for_matching, re.IGNORECASE):
-                    found.append((phrase, idx))
-                    found_set.add((phrase, idx))
-                    continue
-                
-                # Strategy 3: Normalized matching (handles punctuation variations)
-                # Normalize both: remove punctuation, normalize spaces
-                msg_normalized_no_punct = re.sub(r'[^\w\s]', ' ', msg_for_matching)
-                msg_normalized_no_punct = re.sub(r'\s+', ' ', msg_normalized_no_punct).strip()
-                
-                phrase_normalized = re.sub(r'[^\w\s]', ' ', phrase_lower)
-                phrase_normalized = re.sub(r'\s+', ' ', phrase_normalized).strip()
-                
-                # Check if normalized phrase appears as whole words (not substring)
-                if phrase_normalized:
-                    # Use word boundaries for normalized matching too
-                    normalized_pattern = r'\b' + re.escape(phrase_normalized) + r'\b'
-                    if re.search(normalized_pattern, msg_normalized_no_punct, re.IGNORECASE):
-                        found.append((phrase, idx))
-                        found_set.add((phrase, idx))
-                        continue
-                    
-                    # Fallback: check if phrase starts the message
-                    if msg_normalized_no_punct.startswith(phrase_normalized + ' ') or msg_normalized_no_punct == phrase_normalized:
-                        found.append((phrase, idx))
-                        found_set.add((phrase, idx))
-        
-        return found
-
-    # Find comprehension gap phrases - use improved matching
     gap_phrases_found = find_exact_phrases(student_messages, COMPREHENSION_GAP_PHRASES)
-    
-    # Debug: log what we found for troubleshooting
-    if gap_phrases_found:
-        print(f"[DEBUG COMPREHENSION GAP] Found {len(gap_phrases_found)} comprehension gap phrases in messages:")
-        for phrase, msg_idx in gap_phrases_found:
-            print(f"  - Phrase: '{phrase}' in message {msg_idx}: '{student_messages[msg_idx][:100]}...'")
-    
-    # Check if each gap phrase is followed by paraphrase or checkvraag
+
     gap_issues = []
-    exact_phrases_quoted = []
-    
+    exact_phrases_quoted: List[str] = []
+
     for phrase, msg_idx in gap_phrases_found:
-        # Check if paraphrase or checkvraag appears in the SAME message or in next 1-2 messages
+        phrase_norm = _normalize_for_match(phrase)
+        current = lower_messages[msg_idx]
+
+        def _has_evidence(text: str) -> bool:
+            return any(cue in text for cue in PARAPHRASE_CUES) or any(cue in text for cue in CHECKVRAAG_CUES)
+
         followed_by_evidence = False
-        
-        # First check the same message (after the phrase)
-        current_message = student_messages[msg_idx].lower()
-        # Try to find phrase position using multiple strategies
-        phrase_pos = -1
-        phrase_lower = phrase.lower()
-        
-        # Strategy 1: Direct find
-        phrase_pos = current_message.find(phrase_lower)
-        
-        # Strategy 2: If not found, try normalized matching
-        if phrase_pos < 0:
-            # Normalize both for matching
-            msg_normalized = re.sub(r'[^\w\s]', ' ', current_message)
-            msg_normalized = re.sub(r'\s+', ' ', msg_normalized).strip()
-            phrase_normalized = re.sub(r'[^\w\s]', ' ', phrase_lower)
-            phrase_normalized = re.sub(r'\s+', ' ', phrase_normalized).strip()
-            
-            if phrase_normalized in msg_normalized:
-                # Approximate position - use the normalized phrase start
-                phrase_pos = msg_normalized.find(phrase_normalized)
-                # Map back to approximate position in original (rough estimate)
-                if phrase_pos >= 0:
-                    # Count spaces/words before the phrase in normalized version
-                    words_before = len(msg_normalized[:phrase_pos].split())
-                    # Try to find corresponding position in original
-                    words = current_message.split()
-                    if words_before < len(words):
-                        phrase_pos = len(' '.join(words[:words_before])) if words_before > 0 else 0
-        
-        if phrase_pos >= 0:
-            # Check text after the phrase in the same message
-            text_after_phrase = current_message[phrase_pos + len(phrase):]
-            has_paraphrase_same = any(cue in text_after_phrase for cue in PARAPHRASE_CUES)
-            has_checkvraag_same = any(cue in text_after_phrase for cue in CHECKVRAAG_CUES)
-            followed_by_evidence = has_paraphrase_same or has_checkvraag_same
-        
-        # Also check subsequent messages (within next 2 messages)
-        if not followed_by_evidence and msg_idx < len(student_messages) - 1:
-            next_messages = student_messages[msg_idx + 1:msg_idx + 3]  # Check next 1-2 messages
-            next_lower = " ".join([m.lower() for m in next_messages])
-            
-            # Check for paraphrase cues
-            has_paraphrase = any(cue in next_lower for cue in PARAPHRASE_CUES)
-            # Check for checkvraag cues
-            has_checkvraag = any(cue in next_lower for cue in CHECKVRAAG_CUES)
-            
-            followed_by_evidence = has_paraphrase or has_checkvraag
-        
+
+        pos = current.find(phrase_norm)
+        if pos >= 0:
+            after = current[pos + len(phrase_norm):]
+            if _has_evidence(after):
+                followed_by_evidence = True
+
         if not followed_by_evidence:
-            # This is a comprehension gap - claimed understanding but didn't demonstrate
+            next_window = " ".join(lower_messages[msg_idx + 1: msg_idx + 3])
+            if _has_evidence(next_window):
+                followed_by_evidence = True
+
+        if not followed_by_evidence:
             exact_phrases_quoted.append(phrase)
-            gap_issues.append({
-                "phrase": phrase,
-                "message_index": msg_idx,
-                "exact_message": student_messages[msg_idx]
-            })
+            gap_issues.append(
+                {
+                    "phrase": phrase,
+                    "message_index": msg_idx,
+                    "exact_message": student_messages[msg_idx],
+                }
+            )
 
     understanding_hits = count_cues(UNDERSTANDING_CUES)
+    claim_hits = count_cues(UNDERSTANDING_CLAIM_CUES)
     paraphrase_hits = count_cues(PARAPHRASE_CUES)
     checkvraag_hits = count_cues(CHECKVRAAG_CUES)
     confusion_hits = count_cues(CONFUSION_CUES)
-    question_count = sum(1 for msg in student_messages if "?" in msg)
+    question_count = sum(1 for msg in student_messages if looks_like_question(msg))
 
-    coverage = metadata.get("coverage_percentage", 0)
+    coverage = float(metadata.get("coverage_percentage", 0) or 0)
     missing_patterns = metadata.get("patterns_missing") or []
 
     gap_reasons: List[str] = []
-    
-    # Rule 1: Flag comprehension gap phrases - make feedback explicit and directive
     if gap_issues:
-        # Group by phrase type
-        phrase_counts = {}
-        for issue in gap_issues:
-            phrase = issue["phrase"]
-            phrase_counts[phrase] = phrase_counts.get(phrase, 0) + 1
-        
-        # Get all unique phrases used
-        all_phrases = list(phrase_counts.keys())
-        phrases_text = "', '".join(all_phrases[:3])  # Show up to 3 examples
-        if len(all_phrases) > 3:
-            phrases_text += f" en nog {len(all_phrases) - 3} andere"
-        
-        total_count = sum(phrase_counts.values())
-        
-        if total_count == 1:
-            gap_reasons.append(f"❌ VERMIJD dit: Je zei '{phrases_text}' tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt' of 'snapt' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?').")
-        else:
-            gap_reasons.append(f"❌ VERMIJD dit: Je zei meerdere keren dingen zoals '{phrases_text}' ({total_count} keer) tegen iemand die ouder is dan jij. Dit is onbeleefd en onprofessioneel - je kunt niet beweren dat je iemand 'begrijpt', 'snapt' of het 'weet' die ouder is dan jij. Zeg in plaats daarvan NIETS, of gebruik direct een parafrase (bijv. 'Dus u voelt zich...?') of checkvraag (bijv. 'Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
+        unique = list(dict.fromkeys([g["phrase"] for g in gap_issues]))
+        sample = "', '".join(unique[:3])
+        if len(unique) > 3:
+            sample += f"' (+{len(unique) - 3} meer)"
+        gap_reasons.append(
+            f"Begrip geclaimd met '{sample}' zonder parafrase/checkvraag binnen (max) 2 vervolgberichten."
+        )
 
-    # Additional checks
+    if understanding_hits and (paraphrase_hits == 0 and checkvraag_hits == 0):
+        gap_reasons.append("Er werd geen parafrase of checkvraag gebruikt om begrip te toetsen.")
     if understanding_hits and question_count < max(1, understanding_hits):
-        gap_reasons.append("Na het uitspreken van begrip volgden weinig verdiepende of verifiërende vragen.")
-    if understanding_hits and paraphrase_hits == 0 and checkvraag_hits == 0:
-        gap_reasons.append("Er werd geen parafrase of checkvraag gebruikt om te toetsen of het begrip echt klopte.")
+        gap_reasons.append("Na begrip-uitingen volgden relatief weinig verdiepende/verifiërende vragen.")
+    if confusion_hits:
+        gap_reasons.append("Er zijn signalen van twijfel/zoekend taalgebruik in je antwoorden.")
     if coverage < 60 and understanding_hits:
         focus = ", ".join(missing_patterns[:2]) if missing_patterns else "belangrijke patronen"
-        gap_reasons.append(f"Je gaf aan dat je het begreep, maar liet nog belangrijke patronen onbesproken ({focus}).")
-    if confusion_hits:
-        gap_reasons.append("Er zijn signalen van twijfel of verwarring in je antwoorden.")
+        gap_reasons.append(f"Let op: relevante patronen nog onbesproken ({focus}).")
 
-    gap_detected = len(gap_reasons) > 0
-    if gap_detected:
-        summary = " ".join(gap_reasons[:3])  # Limit to first 3 reasons
-    else:
-        summary = "Je parafraseerde of stelde vervolgvragen waardoor je begrip aannemelijk is."
+    primary_gap = bool(gap_issues) or (claim_hits > 0 and (paraphrase_hits + checkvraag_hits) == 0)
+    gap_detected = primary_gap
+    summary = (
+        " ".join(gap_reasons[:3])
+        if gap_detected
+        else "Je parafraseerde of stelde vervolgvragen waardoor begrip aannemelijk is."
+    )
 
     return {
         "gap_detected": gap_detected,
         "reasons": gap_reasons,
-        "exact_phrases": exact_phrases_quoted,
+        "exact_phrases": list(dict.fromkeys(exact_phrases_quoted)),
         "gap_issues": gap_issues,
         "summary": summary,
         "student_messages": len(student_messages),
@@ -830,9 +880,11 @@ def build_feedback_metadata(gordon_result: Optional[Dict], speech_result: Option
         "speech_summary": scrub_text((speech_result or {}).get("summary")),
         "emotion": infer_emotion((speech_result or {}).get("emotion"), metrics),
         "coverage_percentage": round(gordon_result.get("coverage_percentage", 0)),
+        "student_coverage_percentage": round(gordon_result.get("student_coverage_percent", gordon_result.get("coverage_percentage", 0))),
         "patterns_mentioned": mentioned_pattern_labels,
         "patterns_missing": missing_pattern_labels,
         "covered_patterns": gordon_result.get("covered_patterns", 0),
+        "student_covered_patterns": gordon_result.get("student_covered_count", gordon_result.get("covered_patterns", 0)),
         "total_patterns": gordon_result.get("total_patterns", 11),
         "gordon_summary": scrub_text(gordon_result.get("summary")),
     }
@@ -859,18 +911,25 @@ def build_llm_prompt(metadata: Dict[str, Any]) -> str:
     pause_distribution_text = format_pause_distribution_text(metadata["pause_distribution"])
     patterns_mentioned_text = ", ".join(metadata["patterns_mentioned"]) or "geen patronen genoemd"
     patterns_missing_text = ", ".join(metadata["patterns_missing"]) or "geen ontbrekende patronen"
+    allowed_quotes_text = format_allowed_quotes(metadata.get("allowed_quotes") or {})
+    coverage_any = metadata.get("coverage_percentage", 0)
+    coverage_student = metadata.get("student_coverage_percentage", coverage_any)
 
     prompt = f"""
 Je bent een professionele beoordelaar van gespreksvaardigheden voor HBO-V studenten.
 Gebruik ALTIJD de onderstaande structuur en schrijf in duidelijk, vriendelijk en professioneel Nederlands.
 Verwijs naar de METRICS (onderaan) om je feedback concreet en specifiek te maken.
 Vermijd vage opmerkingen, wees feitelijk, empathisch en gericht op leerdoelen.
+Als er geen citaten beschikbaar zijn in het transcript, schrijf expliciet \"Geen exacte quote beschikbaar\" en verzin niets.
 
 BELANGRIJKE REGELS:
 - Als dekking < 27% (minder dan 3/11 patronen): DE toon MOET kritisch zijn. Geef maximaal 1 compliment en focus op wat ontbreekt.
 - Quote ALTIJD exacte studentuitdrukkingen (bijv. "Je zei: 'ik snap het'...").
 - Noem exacte fillers als die voorkomen (bijv. "Je gebruikte 'eh' meerdere keren").
 - Wees realistisch: bij lage dekking of lage prosodie moet de toon kritischer zijn.
+
+CITATEN (ALLEEN DEZE MAG JE QUOTEN):
+{allowed_quotes_text}
 
 =====================================
 ### 1. Complimenten
@@ -916,7 +975,8 @@ Pauze verdeling: {pause_distribution_text}
 Filler ratio: {metadata['filler_ratio']}
 Emotie: {metadata['emotion']}
 Prosodie: {metadata['prosody_score']}
-Gordon dekking: {metadata['coverage_percentage']}%
+Gordon dekking (door student uitgevraagd): {coverage_student}%
+Gordon dekking (alles wat ter sprake kwam): {coverage_any}%
 Patronen genoemd: {patterns_mentioned_text}
 Patronen gemist: {patterns_missing_text}
 """.strip()
@@ -982,10 +1042,19 @@ def sanitize_llm_output(conversation_feedback, metadata: Dict[str, Any]) -> Tupl
     buffer: List[str] = []
 
     if sanitized_text:
-        pattern_map = {title.lower(): title for title in LLM_SECTION_TITLES}
         for line in sanitized_text.splitlines():
-            stripped = line.strip().strip(":").lower()
-            matched = next((pattern_map[name] for name in pattern_map if stripped.startswith(name)), None)
+            header_line = line.strip().lower()
+            header_line = re.sub(r"^[#\s>*_-]+", "", header_line)
+            header_line = re.sub(r"^\d+[\).\s-]+", "", header_line)
+            header_line = header_line.strip(": ").strip()
+            matched = next(
+                (
+                    title
+                    for title in LLM_SECTION_TITLES
+                    if re.search(rf"\b{re.escape(title.lower())}\b", header_line)
+                ),
+                None,
+            )
             if matched:
                 sections[current] = "\n".join(buffer).strip()
                 current = matched
@@ -1033,36 +1102,41 @@ def build_summary_section(
     exact_phrases = analysis_block.get("exact_phrases_used", {})
 
     # Overall verdict based on coverage, prosody, and comprehension check.
-    coverage = metadata["coverage_percentage"]
-    covered_patterns = metadata.get("covered_patterns", 0)
+    coverage_any = metadata["coverage_percentage"]
+    coverage_student = metadata.get("student_coverage_percentage", coverage_any)
+    covered_patterns_any = metadata.get("covered_patterns", 0)
+    covered_patterns_student = metadata.get("student_covered_patterns", covered_patterns_any)
     prosody = metadata["prosody_score"]
     gap_result = metadata.get("understanding_gap") or {}
     has_gap = gap_result.get("gap_detected")
 
-    # Rule 4: Low coverage handling (< 3/11 patterns = ~27%)
-    is_low_coverage = covered_patterns < 3 or coverage < 27.3
+    # Rule 4: Low coverage handling (< 3/11 patterns = ~27%), based on student-driven dekking
+    is_low_coverage = covered_patterns_student < 3 or coverage_student < 27.3
     
     # Rule 5: Check if history is very short
     sentence_count = count_sentences(conversation_history) if conversation_history else 0
     is_very_short = sentence_count < 5
 
-    # Determine overall level - Rule 4: Force orange/red for low coverage
+    # Determine overall level - Rule 4: Force orange/red for low student coverage
     if is_low_coverage:
         overall_level = "low"
         missing_patterns = metadata.get("patterns_missing", [])
         missing_list = ", ".join(missing_patterns[:3]) if missing_patterns else "belangrijke patronen"
-        overall_reason = f"Door slechts {covered_patterns} patronen te behandelen, mis je belangrijke informatie die essentieel is voor een veilige anamnese. Ontbrekende patronen: {missing_list}."
-    elif coverage >= 70 and prosody >= THRESHOLDS["prosody"]["good"] and not has_gap:
+        overall_reason = (
+            f"Door slechts {covered_patterns_student} patronen zelf uit te vragen, mis je belangrijke informatie "
+            f"die essentieel is voor een veilige anamnese. Ontbrekende patronen: {missing_list}."
+        )
+    elif coverage_student >= 70 and prosody >= THRESHOLDS["prosody"]["good"] and not has_gap:
         overall_level = "high"
-        overall_reason = "Goede dekking, sterke prosodie en geen duidelijke begripskloof."
-    elif coverage >= 40 and prosody >= THRESHOLDS["prosody"]["ok"]:
+        overall_reason = "Goede student-gedreven dekking, sterke prosodie en geen duidelijke begripskloof."
+    elif coverage_student >= 40 and prosody >= THRESHOLDS["prosody"]["ok"]:
         overall_level = "medium"
-        overall_reason = "Redelijke dekking of prosodie, maar er is ruimte voor verdieping of scherpere opvolging."
+        overall_reason = "Redelijke student-gedreven dekking of prosodie, maar er is ruimte voor verdieping of scherpere opvolging."
     else:
-        overall_level = "low" if coverage < 40 or prosody < THRESHOLDS["prosody"]["ok"] else "medium"
+        overall_level = "low" if coverage_student < 40 or prosody < THRESHOLDS["prosody"]["ok"] else "medium"
         reason_parts = []
-        if coverage < 40:
-            reason_parts.append(f"lage dekking ({coverage}%)")
+        if coverage_student < 40:
+            reason_parts.append(f"lage student-dekking ({coverage_student}%)")
         if prosody < THRESHOLDS["prosody"]["ok"]:
             reason_parts.append(f"prosodie {prosody}/100")
         if has_gap or analysis_flags.get("comprehension_gap"):
@@ -1088,15 +1162,31 @@ def build_summary_section(
     else:
         lines.append(f"- ❌ Stopwoorden: {filler_ratio}% – vertraag je tempo om fillers te beperken.")
 
-    coverage = metadata["coverage_percentage"]
-    if coverage >= 70:
-        lines.append(f"- ✅ Gordon patronen: {metadata['covered_patterns']}/{metadata['total_patterns']} ({coverage}%) behandeld.")
-    elif coverage >= 40:
-        lines.append(f"- ⚠️ Gordon patronen: {metadata['covered_patterns']}/{metadata['total_patterns']} ({coverage}%) – pak meer domeinen mee.")
+    # Report both any-mention and student-driven coverage
+    if coverage_student >= 70:
+        lines.append(
+            f"- ✅ Gordon patronen (door student uitgevraagd): {covered_patterns_student}/{metadata['total_patterns']} "
+            f"({coverage_student}%) behandeld."
+        )
+    elif coverage_student >= 40:
+        lines.append(
+            f"- ⚠️ Gordon patronen (door student uitgevraagd): {covered_patterns_student}/{metadata['total_patterns']} "
+            f"({coverage_student}%) – pak meer domeinen mee."
+        )
     else:
-        lines.append(f"- ❌ Gordon patronen: slechts {coverage}% dekking, plan bewuste vervolgvragen.")
+        lines.append(
+            f"- ❌ Gordon patronen (door student uitgevraagd): slechts {coverage_student}% dekking, plan bewuste vervolgvragen."
+        )
         if analysis_flags.get("low_coverage_issue"):
-            lines.append(f"- ❌ You covered only {covered_patterns} out of 11 patterns; vul de ontbrekende patronen in met gerichte vragen.")
+            lines.append(
+                f"- ❌ Je vroeg slechts actief naar {covered_patterns_student} van de 11 patronen; vul de ontbrekende patronen aan met gerichte vragen."
+            )
+
+    if coverage_any != coverage_student:
+        lines.append(
+            f"- ℹ️ In totaal kwamen {covered_patterns_any}/{metadata['total_patterns']} patronen ter sprake "
+            f"({coverage_any}%), maar niet alle patronen werden door jou zelf uitgevraagd."
+        )
 
     gap_result = metadata.get("understanding_gap") or {}
     understanding_examples = analysis_examples.get("understanding_examples") or []
@@ -1129,8 +1219,8 @@ def build_summary_section(
         lines.append(f"- Volgende focus: vraag door op {top_missing} met concrete voorbeelden.")
 
     # Abrupt ending check
-    if analysis_flags.get("abrupt_ending_issue") and analysis_examples.get("abrubt_ending_examples"):
-        lines.append(f"- ❌ Afsluiting: '{analysis_examples['abrubt_ending_examples'][0]}' klonk abrupt en kwam zonder samenvatting.")
+    if analysis_flags.get("abrupt_ending_issue") and analysis_examples.get("abrupt_ending_examples"):
+        lines.append(f"- ❌ Afsluiting: '{analysis_examples['abrupt_ending_examples'][0]}' klonk abrupt en kwam zonder samenvatting.")
 
     lines.append(
         f"- Metrics: {metadata['speech_rate_wpm']} wpm | tempo-variatie {metadata['tempo_variation']}% | "
@@ -1141,6 +1231,25 @@ def build_summary_section(
 
 def format_pause_distribution_text(pause_distribution: Dict[str, float]) -> str:
     return f"{pause_distribution['short']}% kort / {pause_distribution['medium']}% middel / {pause_distribution['long']}% lang"
+
+
+def format_allowed_quotes(allowed_quotes: Dict[str, List[str]]) -> str:
+    """
+    Render a constrained list of quotable transcript snippets to avoid hallucinated quotes.
+    """
+    def render_line(label: str, items: List[str]) -> str:
+        if not items:
+            return f"- {label}: Geen exacte uitspraak beschikbaar in het transcript."
+        safe_items = [f"\"{scrub_text(q)}\"" for q in items[:3]]
+        return f"- {label}: " + " | ".join(safe_items)
+
+    sections = [
+        render_line("Begrip-uitspraken", allowed_quotes.get("understanding") or []),
+        render_line("Filler-voorbeelden", allowed_quotes.get("fillers") or []),
+        render_line("Voorbeelden open vragen", allowed_quotes.get("open_questions") or []),
+        render_line("Voorbeelden gesloten vragen", allowed_quotes.get("closed_questions") or []),
+    ]
+    return "\n".join(sections)
 
 
 def build_speech_section(
@@ -1175,25 +1284,23 @@ def build_speech_section(
     # Rule 2: Filler/hesitation detection - MANDATORY if any fillers found
     metrics = (speech_result or {}).get("metrics", {}) if speech_result else {}
     filler_tokens = (analysis_block.get("exact_phrases_used") or {}).get("filler_words", [])
-    filler_count = metadata.get("hesitation_markers", 0) or len(filler_tokens)
+    filler_token_count = len(filler_tokens)
+    hesitation_markers = metadata.get("hesitation_markers", 0)
     filler_ratio = metadata.get('filler_ratio', 0)
     total_words = metadata.get('total_words', 0) or metrics.get('total_words', 0) or analysis_block.get("summary_findings", {}).get("conversation_length", 0)
 
-    if filler_count > 0:
-        # Calculate density per 10 words
-        filler_density = (filler_count / total_words * 10) if total_words > 0 else 0
-        lines.append(f"- Opvulgeluidjes/fillers: {filler_count} keer gebruikt")
-        lines.append(f"- Filler-dichtheid: {filler_density:.1f} per 10 woorden")
-        lines.append("  → Opvulgeluidjes verminderen de duidelijkheid van je communicatie.")
-        
-        # Rule 2C: Severity indicator if > 3
-        if filler_count > 3:
-            lines.append(f"  → Je gebruikte veel opvulgeluidjes ({filler_count} keer), wat de professionaliteit verlaagt.")
-    elif filler_tokens:
+    if filler_token_count > 0:
+        filler_density = (filler_token_count / total_words * 10) if total_words > 0 else 0
         filler_summary = summarize_filler_tokens(filler_tokens)
-        lines.append(f"- Opvulgeluidjes/fillers: transcript toont {filler_summary}")
+        lines.append(f"- Opvulgeluidjes/fillers: {filler_summary}")
+        lines.append(f"- Filler-dichtheid: {filler_density:.1f} per 10 woorden")
+        if filler_token_count > 3:
+            lines.append(f"  → Je gebruikte veel opvulgeluidjes ({filler_token_count} keer), wat de professionaliteit verlaagt.")
     else:
-        lines.append("- Opvulgeluidjes/fillers: geen gedetecteerd")
+        lines.append("- Opvulgeluidjes/fillers: geen gedetecteerd in transcript")
+
+    if hesitation_markers:
+        lines.append(f"- Hesitation markers (model): {hesitation_markers}")
 
     if filler_tokens:
         filler_summary = summarize_filler_tokens(filler_tokens)
@@ -1252,8 +1359,8 @@ def build_conversation_skills_section(
         lines.append(f"- Empathie: {len(empathy_attempts)} keer, zoals \"{empathy_attempts[0]}\"")
     if filler_words:
         lines.append(f"- Fillers in gesprek: {filler_words}")
-    if flags.get("abrupt_ending_issue") and examples.get("abrubt_ending_examples"):
-        lines.append(f"- ❌ Abrupte afsluiting: \"{examples['abrubt_ending_examples'][0]}\" zonder samenvatting.")
+    if flags.get("abrupt_ending_issue") and examples.get("abrupt_ending_examples"):
+        lines.append(f"- ❌ Abrupte afsluiting: \"{examples['abrupt_ending_examples'][0]}\" zonder samenvatting.")
 
     return "\n".join(lines)
 
@@ -1335,24 +1442,49 @@ def build_gordon_section(metadata: Dict[str, Any]) -> str:
     Rule 4: If coverage < 3/11, explicitly list missing patterns and explain why they're essential.
     """
     lines = ["=== 5. Gordon-patronen Analyse ==="]
-    coverage = metadata["coverage_percentage"]
-    covered_patterns = metadata['covered_patterns']
-    total_patterns = metadata['total_patterns']
-    
-    lines.append(f"- Dekking: {covered_patterns}/{total_patterns} ({coverage:.1f}%)")
+    detected = metadata.get("detected_gordon")
+    if detected:
+        coverage_any = detected.get("coverage_percent", 0.0)
+        covered_patterns_any = detected.get("covered_count", 0)
+        coverage_student = detected.get("student_coverage_percent", coverage_any)
+        covered_patterns_student = detected.get("student_covered_count", covered_patterns_any)
+        total_patterns = detected.get("total_patterns", 11)
+        patterns = detected.get("patterns", {}) or {}
+        mentioned_list = [p.get("name") for p in patterns.values() if p.get("covered")]
+        missing_list = [p.get("name") for p in patterns.values() if not p.get("covered")]
+    else:
+        coverage_any = metadata["coverage_percentage"]
+        covered_patterns_any = metadata['covered_patterns']
+        coverage_student = metadata.get("student_coverage_percentage", coverage_any)
+        covered_patterns_student = metadata.get("student_covered_patterns", covered_patterns_any)
+        total_patterns = metadata['total_patterns']
+        mentioned_list = metadata.get("patterns_mentioned") or []
+        missing_list = metadata.get("patterns_missing") or []
+
+    lines.append(
+        f"- Dekking (door student uitgevraagd): {covered_patterns_student}/{total_patterns} ({coverage_student:.1f}%)"
+    )
+    lines.append(
+        f"- Totale dekking (alles wat ter sprake kwam): {covered_patterns_any}/{total_patterns} ({coverage_any:.1f}%)"
+    )
 
     # Rule 4: Strong feedback for low coverage
-    is_low_coverage = covered_patterns < 3 or coverage < 27.3
+    is_low_coverage = covered_patterns_student < 3 or coverage_student < 27.3
     if is_low_coverage:
-        lines.append(f"- ⚠️ Lage dekking: Door slechts {covered_patterns} patronen te behandelen, mis je belangrijke informatie die essentieel is voor een veilige anamnese.")
-        lines.append(f"- ❌ You covered only {covered_patterns} out of 11 patterns; zorg voor een bredere anamnese.")
+        lines.append(
+            f"- ⚠️ Lage dekking: Door slechts {covered_patterns_student} patronen actief uit te vragen, mis je belangrijke informatie "
+            "die essentieel is voor een veilige anamnese."
+        )
+        lines.append(
+            f"- ❌ Je behandelde als student slechts {covered_patterns_student} van de 11 patronen; zorg voor een bredere anamnese."
+        )
 
-    mentioned = ", ".join(metadata["patterns_mentioned"]) if metadata["patterns_mentioned"] else "geen vermeld"
-    missing = ", ".join(metadata["patterns_missing"]) if metadata["patterns_missing"] else "n.v.t."
+    mentioned = ", ".join(mentioned_list) if mentioned_list else "geen vermeld"
+    missing = ", ".join(missing_list) if missing_list else "n.v.t."
     lines.append(f"- Genoemde patronen: {mentioned}")
     
     # Rule 4: Explicitly list missing patterns for low coverage
-    if is_low_coverage and metadata["patterns_missing"]:
+    if is_low_coverage and missing_list:
         lines.append(f"- ❌ Ontbrekende patronen (essentieel): {missing}")
     else:
         lines.append(f"- Ontbrekende patronen: {missing}")
@@ -1360,13 +1492,13 @@ def build_gordon_section(metadata: Dict[str, Any]) -> str:
     if metadata["gordon_summary"]:
         lines.append(f"- Samenvatting: {metadata['gordon_summary']}")
 
-    top_missing = ", ".join(metadata["patterns_missing"][:3]) if metadata["patterns_missing"] else "n.v.t."
+    top_missing = ", ".join(missing_list[:3]) if missing_list else "n.v.t."
     if top_missing != "n.v.t.":
         lines.append(f"- Focus voor volgende keer: {top_missing}")
 
     # Add concrete follow-up questions for the most relevant missing patterns.
     follow_ups = []
-    for pattern in metadata["patterns_missing"][:2]:
+    for pattern in missing_list[:2]:
         question = PATTERN_QUESTIONS.get(pattern) or PATTERN_QUESTIONS.get(pattern.split(" / ")[0])
         if question:
             follow_ups.append(f"Stel: \"{question}\"")
@@ -1391,10 +1523,8 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     techniques: List[str] = []
     
     filler_ratio = metadata["filler_ratio"]
-    filler_count = metadata.get("hesitation_markers", 0)
-    analysis_filler_count = len(analysis_exact.get("filler_words", []))
-    if filler_count == 0 and analysis_filler_count:
-        filler_count = analysis_filler_count
+    filler_token_count = len(analysis_exact.get("filler_words", []))
+    hesitation_markers = metadata.get("hesitation_markers", 0)
     tempo_variation = metadata["tempo_variation"]
     speech_rate = metadata["speech_rate_wpm"]
     pause_distribution = metadata["pause_distribution"]
@@ -1404,7 +1534,8 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     prosody = metadata["prosody_score"]
     volume_stability = metadata["volume_stability"]
     gap_result = metadata.get("understanding_gap") or {}
-    coverage = metadata["coverage_percentage"]
+    coverage = metadata.get("student_coverage_percentage", metadata.get("coverage_percentage", 0))
+    covered_count = metadata.get("student_covered_patterns", metadata.get("covered_patterns", 0))
     
     # Collect strengths
     if prosody >= THRESHOLDS["prosody"]["good"]:
@@ -1430,7 +1561,7 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     if pause_distribution["short"] > THRESHOLDS["pause_short_ratio"] or pause_avg < THRESHOLDS["pause_avg"]["short"]:
         improvements.append("Veel korte pauzes breken de flow; adem diep uit voordat je reageert.")
     # Rule 2B: Filler reduction action
-    if filler_count > 3:
+    if filler_token_count > 3:
         improvements.append("Verminder het aantal fillers zoals 'eh', omdat dit de boodschap minder helder maakt. Gebruik korte pauzes in plaats van opvulgeluidjes.")
     elif filler_ratio > THRESHOLDS["filler_ratio"]["medium"]:
         improvements.append("Verminder opvulgeluidjes door steekwoorden vooraf te noteren en rustiger te spreken.")
@@ -1446,15 +1577,23 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
     if coverage < 60:
         missing = ", ".join(metadata["patterns_missing"][:3])
         improvements.append(f"Plan vragen rond ontbrekende patronen ({missing}) om vollediger te screenen.")
-    if analysis_flags.get("abrupt_ending_issue") and analysis_examples.get("abrubt_ending_examples"):
-        improvements.append(f"Sluit niet af met \"{analysis_examples['abrubt_ending_examples'][0]}\"; eindig met een korte samenvatting en een bedankje.")
+    if analysis_flags.get("abrupt_ending_issue") and analysis_examples.get("abrupt_ending_examples"):
+        improvements.append(f"Sluit niet af met \"{analysis_examples['abrupt_ending_examples'][0]}\"; eindig met een korte samenvatting en een bedankje.")
     if gap_result.get("gap_detected"):
         exact_phrases = gap_result.get("exact_phrases", [])
         if exact_phrases:
             phrases_example = "', '".join(exact_phrases[:3])
-            improvements.append(f"VERMIJD uitspraken zoals '{phrases_example}' tegen iemand die ouder is - dit is onbeleefd omdat je niet kunt beweren dat je iemand 'begrijpt' die ouder is. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
+            improvements.append(
+                f"Vermijd uitspraken zoals '{phrases_example}' als afsluiter zonder vervolg. "
+                "Zonder parafrase of checkvraag kan dit het gesprek voortijdig sluiten. "
+                "Doe liever: parafrase ('Dus u zegt dat...?') + checkvraag ('Heb ik dat goed begrepen?')."
+            )
         else:
-            improvements.append("VERMIJD uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'i understand', 'i get it' tegen iemand die ouder is - dit is onbeleefd omdat je niet kunt beweren dat je iemand 'begrijpt' die ouder is. In plaats daarvan: zeg NIETS, of gebruik direct een parafrase ('Dus u zegt dat...?') of checkvraag ('Heb ik dat goed begrepen?').")
+            improvements.append(
+                "Vermijd uitspraken zoals 'ik begrijp het', 'ja ik snap het', 'i understand', 'i get it' als afsluiter. "
+                "Zonder parafrase of checkvraag kan dit het gesprek vroegtijdig stoppen. "
+                "Gebruik liever een parafrase ('Dus u zegt dat...?') en checkvraag ('Heb ik dat goed begrepen?')."
+            )
     elif analysis_flags.get("comprehension_gap"):
         understanding_examples = analysis_examples.get("understanding_examples") or analysis_exact.get("understanding_phrases", [])
         if understanding_examples:
@@ -1468,9 +1607,15 @@ def build_action_items(metadata: Dict[str, Any]) -> str:
         exact_phrases = gap_result.get("exact_phrases", [])
         if exact_phrases:
             phrases_example = "', '".join(exact_phrases[:2])
-            techniques.append(f"Techniek: VERMIJD uitspraken zoals '{phrases_example}' tegen iemand die ouder is - dit is onbeleefd. In plaats daarvan: zeg NIETS (luister gewoon), of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
+            techniques.append(
+                f"Techniek: Vermijd uitspraken zoals '{phrases_example}' zonder dat je daarna samenvat of een checkvraag stelt. "
+                "Laat liever horen wat je hebt opgepikt ('Dus u voelt zich...?') en vraag of dat klopt."
+            )
         else:
-            techniques.append("Techniek: VERMIJD uitspraken zoals 'ik begrijp het', 'i understand', 'i get it' tegen iemand die ouder is - dit is onbeleefd omdat je niet kunt beweren dat je iemand 'begrijpt' die ouder is. In plaats daarvan: zeg NIETS (luister gewoon), of gebruik direct een parafrase ('Dus u voelt zich...?') of checkvraag ('Heb ik dat goed begrepen?') om te tonen dat je luistert zonder te pretenderen dat je het al begrijpt.")
+            techniques.append(
+                "Techniek: Vermijd uitspraken zoals 'ik begrijp het', 'i understand', 'i get it' als afsluiter. "
+                "Toon begrip door kort samen te vatten ('Dus u zegt dat...') en af te checken of dat klopt."
+            )
     elif analysis_flags.get("comprehension_gap"):
         understanding_examples = analysis_examples.get("understanding_examples") or analysis_exact.get("understanding_phrases", [])
         if understanding_examples:
@@ -1563,6 +1708,20 @@ def build_lecturer_notes_section(notes: Optional[str]) -> Optional[str]:
     return "=== Optionele Docentnotities ===\n\n*" + scrub_text(notes) + "*"
 
 
+def build_allowed_quotes(conversation_analysis: Dict[str, Any]) -> Dict[str, List[str]]:
+    """
+    Collect a limited set of transcript snippets the LLM is allowed to quote.
+    """
+    extracted = (conversation_analysis or {}).get("extracted_examples") or {}
+    exact = (conversation_analysis or {}).get("exact_phrases_used") or {}
+    return {
+        "understanding": extracted.get("understanding_examples") or [],
+        "fillers": extracted.get("filler_examples") or [],
+        "open_questions": exact.get("open_questions") or [],
+        "closed_questions": exact.get("closed_questions") or [],
+    }
+
+
 def format_student_feedback(
     conversation_feedback,
     gordon_result,
@@ -1574,11 +1733,17 @@ def format_student_feedback(
     Returns a dict so routes can pass only the plain text to TTS while still exposing
     structured metadata to the client.
     """
+    turns = conversation_history_to_turns(conversation_history)
+    phase_analysis = analyze_conversation_phases(turns, DEFAULT_PHASE_CONFIG)
+    detected_gordon = detect_gordon_patterns(turns, DEFAULT_PHASE_CONFIG)
+    gordon_stub = gordon_stub_from_detection(detected_gordon) or gordon_result
+
     # Build metadata first so we can measure coverage and delivery.
-    metadata = build_feedback_metadata(gordon_result, speech_result)
-    llm_prompt = metadata.get("llm_prompt") or build_llm_prompt(metadata)
-    metadata["llm_prompt"] = llm_prompt
-    conversation_analysis = build_conversation_analysis_block(conversation_history, gordon_result)
+    metadata = build_feedback_metadata(gordon_stub, speech_result)
+    metadata["detected_gordon"] = detected_gordon
+    metadata["phase_analysis"] = phase_analysis
+    metadata["gordon_model_result"] = gordon_result
+    conversation_analysis = build_conversation_analysis_block(conversation_history, gordon_stub)
     metadata["conversation_analysis_block"] = conversation_analysis
 
     # Detect gaps tussen uitgesproken en getoond begrip.
@@ -1592,6 +1757,43 @@ def format_student_feedback(
         gap_result["exact_phrases"] = existing_phrases
         gap_result.setdefault("reasons", []).append("Transcript: begrip geclaimd zonder parafrase binnen 2 zinnen.")
     metadata["understanding_gap"] = gap_result
+
+    if detected_gordon:
+        metadata["coverage_percentage"] = detected_gordon.get("coverage_percent", metadata.get("coverage_percentage", 0))
+        metadata["student_coverage_percentage"] = detected_gordon.get(
+            "student_coverage_percent", metadata.get("student_coverage_percentage", metadata.get("coverage_percentage", 0))
+        )
+        metadata["covered_patterns"] = detected_gordon.get("covered_count", metadata.get("covered_patterns", 0))
+        metadata["student_covered_patterns"] = detected_gordon.get(
+            "student_covered_count", metadata.get("student_covered_patterns", metadata.get("covered_patterns", 0))
+        )
+        metadata["total_patterns"] = detected_gordon.get("total_patterns", metadata.get("total_patterns", 11))
+        detected_patterns = detected_gordon.get("patterns", {}) or {}
+        metadata["patterns_missing"] = [
+            info.get("name")
+            for info in detected_patterns.values()
+            if not info.get("covered")
+        ]
+        metadata["patterns_mentioned"] = [
+            info.get("name")
+            for info in detected_patterns.values()
+            if info.get("covered")
+        ]
+    combined_metrics = (phase_analysis.get("metrics") or {}).copy()
+    if detected_gordon:
+        combined_metrics["gordon_covered_count"] = detected_gordon.get("covered_count", 0)
+        combined_metrics["gordon_coverage_percent"] = detected_gordon.get("coverage_percent", 0.0)
+    phase_output = {
+        "phases": phase_analysis.get("phases", {}),
+        "metrics": combined_metrics,
+        "gordon": detected_gordon,
+        "evidence": phase_analysis.get("evidence", []),
+    }
+    metadata["phase_output"] = phase_output
+
+    # Build allowed quotes list for the LLM prompt and regenerate the prompt with these constraints.
+    metadata["allowed_quotes"] = build_allowed_quotes(conversation_analysis)
+    metadata["llm_prompt"] = build_llm_prompt(metadata)
 
     summary_section = build_summary_section(metadata, conversation_history, conversation_analysis)
 
@@ -1608,6 +1810,7 @@ def format_student_feedback(
             if phrase and phrase not in comprehension_phrases:
                 comprehension_phrases.append(phrase)
     comprehension_section_text = build_comprehension_section(comprehension_phrases)
+    phase_feedback_text = render_phase_feedback(phase_analysis)
 
     speech_section_text = build_speech_section(speech_result, metadata, conversation_analysis)
     gordon_section_text = build_gordon_section(metadata)
@@ -1621,6 +1824,7 @@ def format_student_feedback(
         summary_section,
         conversation_skills_text,
         comprehension_section_text,
+        phase_feedback_text,
         speech_section_text,
         gordon_section_text,
         action_items_text,
@@ -1634,12 +1838,17 @@ def format_student_feedback(
         "summary": summary_section,
         "gespreksvaardigheden": conversation_skills_text,
         "comprehension": comprehension_section_text,
+        "phase_feedback": phase_feedback_text,
         "gordon": gordon_section_text,
         "action_items": action_items_text,
         "closing": motivational_close,
         "llm_sections": llm_sections,
         "analysis_block": conversation_analysis,
     }
+    structured_sections["phase_analysis"] = phase_analysis
+    structured_sections["phase_output"] = phase_output
+    if detected_gordon:
+        structured_sections["gordon_detected"] = detected_gordon
     if speech_section_text:
         structured_sections["speech"] = speech_section_text
     if lecturer_section_text:
@@ -1700,7 +1909,7 @@ def print_feedback_to_terminal(feedback_json):
         print()
 
     # 5. Structured feedback entry point
-    if "structured_feedback" in feedback_json:
+    if "structured" in feedback_json:
         print("📑 STRUCTURED FEEDBACK AVAILABLE")
         print("(This includes all detailed sections generated by your formatter.)")
         print()
