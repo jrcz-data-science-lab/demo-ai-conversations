@@ -100,7 +100,6 @@ def request_handling():
             "username": username,
             "transcript": transcription_text,
             "scenario": scenario,
-            "voice": voice_model,
             "transcript_details": transcript_details,
             "audio_duration": audio_duration
         })
@@ -110,7 +109,6 @@ def request_handling():
         feedback_resp = requests.post(FEEDBACK_URL, json={
             "username": username,
             "scenario": scenario,
-            "voice": voice_model
         })
         feedback_json = feedback_resp.json()
         # Return full feedback response including speech_metrics and icon_states
