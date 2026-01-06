@@ -121,7 +121,6 @@ def generate_response():
     username = data.get("username")
     transcript = data.get("transcript")
     scenario = data.get("scenario")
-    voice = data.get("voice")
     transcript_details = data.get("transcript_details", {})
     audio_duration = data.get("audio_duration", 0)
 
@@ -182,7 +181,6 @@ def generate_feedback():
     data = request.json
     username = data.get("username")
     scenario = data.get("scenario")
-    voice = data.get("voice")
 
     if not username or not scenario:
         return jsonify({"error": "Missing username or scenario"}), 400
