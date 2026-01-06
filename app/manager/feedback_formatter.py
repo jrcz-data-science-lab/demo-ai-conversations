@@ -4,7 +4,7 @@ Advanced formatter: produce structured, metric-driven feedback for nursing stude
 
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from app.manager.phase_detection import (
+from manager.phase_detection import (
     DEFAULT_PHASE_CONFIG,
     analyze_conversation_phases,
     detect_gordon_patterns,
