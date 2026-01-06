@@ -71,13 +71,13 @@ def request_handling():
     except (TypeError, ValueError):
         scenario_int = None
 
-    voice_mapping = {
-        1: "Annmarie Nele",
-        2: "Wulf Carlevaro",
-        3: "Camilla Holmström",
-        4: "Filip Traverse"
-    }
-    voice_model = voice_mapping.get(scenario_int, "Damien Black")
+    # voice_mapping = {
+    #     1: "Annmarie Nele",
+    #     2: "Wulf Carlevaro",
+    #     3: "Camilla Holmström",
+    #     4: "Filip Traverse"
+    # }
+    # voice_model = voice_mapping.get(scenario_int, "Damien Black")
 
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
     stt_json = stt_resp.json()
@@ -170,7 +170,7 @@ def generate_response():
 
         if response_text:
             append_to_history(username, "Avatar", response_text)
-            tts_resp = requests.post(TTS_URL, json={"text": response_text, "voice": voice})
+            tts_resp = requests.post(TTS_URL, json={"text": response_text, "scenario": scenario})
             audio_b64 = tts_resp.json().get("audio")
             return jsonify({"response": response_text, "audio": audio_b64})
 
@@ -303,7 +303,7 @@ def generate_feedback():
         closing_prompt = "Bedankt voor je inzet. Hier zijn mijn observaties van hoe het gesprek is gelopen."
 
         if feedback_text:
-            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "voice": voice})
+            tts_resp = requests.post(TTS_URL, json={"text": closing_prompt, "scenario": scenario})
             audio_b64 = tts_resp.json().get("audio")
 
             # Prepare response
