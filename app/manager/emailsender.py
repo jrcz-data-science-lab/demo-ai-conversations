@@ -3,6 +3,8 @@ from email.message import EmailMessage
 import os
 import json
 import traceback
+import uuid
+from datetime import datetime
 
 def send_email(recipient_email, response):
     sender_email = os.getenv("EMAIL")
@@ -13,7 +15,7 @@ def send_email(recipient_email, response):
     if not sender_email or not sender_password:
         raise ValueError("Email or password environment variables are not set.")
 
-    # ensure the response is a string.
+    # Ensure the response is a string
     if isinstance(response, dict):
         response = json.dumps(response, ensure_ascii=False, indent=2)
     if not isinstance(response, str):
@@ -24,6 +26,12 @@ def send_email(recipient_email, response):
     msg['Subject'] = 'Student Feedback Email'
     msg['From'] = sender_email
     msg['To'] = recipient_email
+
+    # Adding a unique Message-ID
+    msg['Message-ID'] = f"<{uuid.uuid4()}@{server_host}>"
+
+    # Adding a Date header
+    msg['Date'] = datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')
 
     try:
         with smtplib.SMTP_SSL(server_host, server_port) as server:

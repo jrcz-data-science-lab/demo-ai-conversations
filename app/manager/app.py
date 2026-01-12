@@ -291,17 +291,8 @@ def generate_feedback():
                 }
             }
 
-        # DISABLED UNTIL ACCOUNT WORKS 
         # Call send_email and store the return value
-        # email_sent = send_email(username, formatted_feedback)
-
-        # Based on the return value, you can take actions
-        # if email_sent:
-        #    print("The email was sent successfully!")
-        # else:
-        #    print("There was an issue sending the email.")
-
-        # Temporary fix for email function
+        email_sent = send_email(username, formatted_feedback)
         
         feedback_text = (formatted_feedback or {}).get("text")
         structured_feedback = (formatted_feedback or {}).get("structured", {})
