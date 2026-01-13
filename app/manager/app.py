@@ -7,7 +7,7 @@ from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
 from feedback_formatter import format_student_feedback, print_feedback_to_terminal
 from config import ENABLE_SPEECH_ANALYSIS
-from emailsender import send_email
+from email_utils.emailsender import send_email
 import os
 import time
 import logging
