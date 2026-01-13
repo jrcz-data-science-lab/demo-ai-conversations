@@ -17,7 +17,7 @@ def send_email(recipient_email, response):
 
     # Ensure the response is a string
     if isinstance(response, dict):
-        response = json.dumps(response, ensure_ascii=False, indent=2)
+        response = format_email(response)
     if not isinstance(response, str):
         response = str(response)
 
@@ -53,3 +53,31 @@ def send_email(recipient_email, response):
         print("Detailed error:")
         traceback.print_exc()
         return False
+
+def format_email(data: dict) -> str:
+    s = data["structured"]["sections"]
+
+    return f"""
+Beste student,
+
+Bedankt voor je deelneming aan onze sessie. In deze email staan je resultaten op basis van het gesprek.
+
+{s["summary"]}
+
+{s["gespreksvaardigheden"]}
+
+{s["comprehension"]}
+
+{s["phase_feedback"]}
+
+{s["speech"]}
+
+{s["gordon"]}
+
+{s["action_items"]}
+
+{s["closing"]}
+
+Met vriendelijke groeten,
+Het Talk2Care Team
+""".strip()
