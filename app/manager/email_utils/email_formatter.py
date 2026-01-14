@@ -1,45 +1,40 @@
 import json
+import requests
 
-def format_feedback_email(data: dict) -> str:
-    # If 'data' is a string, attempt to parse it as JSON
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)  # Convert the string to a dictionary
-        except json.JSONDecodeError:
-            raise ValueError("The provided string could not be parsed into JSON.")
+def write_email(data: dict) -> str:
+    OLLAMA_URL = "http://ollama:11434/api/generate"
+    # Serialize data to JSON string for better readability in prompt
+    data_json = json.dumps(data, indent=2)
 
-    # Check if data is a dictionary and contains the expected keys
-    if not isinstance(data, dict):
-        raise TypeError("Expected 'data' to be a dictionary, but got {0}".format(type(data)))
+    prompt = f"""
+    Je bent een feedbackcoach die constructieve feedback geeft aan een student. De student is beoordeeld op basis van de volgende gegevens:
 
-    # Ensure the expected structure is present
-    if "structured" not in data or "sections" not in data["structured"]:
-        raise KeyError("'structured' or 'sections' not found in the provided data.")
+    {data_json}
 
-    # Safely extract 'sections' from 'data'
-    s = data["structured"]["sections"]
+    Op basis van deze data schrijf je een e-mail aan de student in drie paragrafen:
 
-    return f"""
-Beste student,
+    1. In de eerste paragraaf, leg uit wat de student goed heeft gedaan, gebruik maximaal 3 zinnen.
+    2. In de tweede paragraaf, leg uit wat de student kan verbeteren, gebruik maximaal 3 zinnen.
+    3. In de derde paragraaf, geef advies over hoe de student zich kan verbeteren gebruik maximaal 3 zinnen.
 
-Bedankt voor je deelneming aan onze sessie. In deze email staan je resultaten op basis van het gesprek.
+    De toon moet constructief en bemoedigend zijn. Eindig de e-mail met het volgende:
+    - Wens de student veel succes en moedig hem/haar aan.
+    - Sluit af met "Talk2Care Project" als ondertekening.
 
-{s["summary"]}
+Let op:
+- Gebruik **geen Markdown-formatering** of speciale tekens zoals sterretjes (***), underscores (_), of andere symbolen die op opmaak wijzen. Dit is een gewone platte tekst-e-mail.
+- Zorg ervoor dat je duidelijk en beknopt bent, en vermijd het gebruik van de naam van de student of persoonlijke identificatiegegevens. Verwijs alleen naar de student als "de student."
+    """
 
-{s["gespreksvaardigheden"]}
-
-{s["comprehension"]}
-
-{s["phase_feedback"]}
-
-{s["speech"]}
-
-{s["gordon"]}
-
-{s["action_items"]}
-
-{s["closing"]}
-
-Met vriendelijke groeten,
-Het Talk2Care Team
-""".strip()
+    try:
+        ollama_response = requests.post(
+            OLLAMA_URL,
+            json={"prompt": prompt, "model": "qwen3:32b", "stream": False, "think": False}
+        )
+        ollama_response.raise_for_status()
+        conversation_feedback = ollama_response.json().get("response", "")
+        
+        return conversation_feedback
+    
+    except requests.exceptions.RequestException as e:
+        return {"error": f"Ollama error: {e}"}, 500

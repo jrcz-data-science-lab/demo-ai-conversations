@@ -1,8 +1,9 @@
 import smtplib, os
 import traceback
 import uuid
+import json
 from email.message import EmailMessage
-from email_utils.email_formatter import format_feedback_email
+from email_utils.email_formatter import write_email
 from email_utils.pdf_generator import create_feedback_pdf
 from datetime import datetime
 import mimetypes
@@ -19,10 +20,10 @@ def send_email(recipient_email, response):
     # If response is a string, attempt to parse it as JSON
     if isinstance(response, str):
         try:
-            response = json.loads(response)  # Try to parse it into a dictionary
+            response = json.loads(response)  # Parse the string to a dictionary
         except json.JSONDecodeError:
             print(f"Error: Invalid JSON response - {response}")
-            return False  # Return early or handle it as needed
+            return False  # Handle error
 
     # Ensure the response is a dictionary
     if not isinstance(response, dict):
@@ -33,7 +34,7 @@ def send_email(recipient_email, response):
     msg['Subject'] = 'Talk2Care Feedback Resultaat'
     msg['From'] = sender_email
     msg['To'] = recipient_email
-    msg.set_content(format_feedback_email(response))
+    msg.set_content(write_email(response))
 
     pdf_path = f"/tmp/feedback_{recipient_email.replace('@', '_')}.pdf"
     create_feedback_pdf(response, pdf_path)
@@ -61,6 +62,12 @@ def send_email(recipient_email, response):
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, recipient_email, msg.as_string())
         print(f"Sending email to: {recipient_email}")
+
+        try:
+            os.remove(pdf_path)
+            print(f"Deleted temporary PDF file: {pdf_path}")
+        except OSError as e:
+            print(f"Error removing temporary PDF file: {e}")
         return True
 
     except smtplib.SMTPException as e:

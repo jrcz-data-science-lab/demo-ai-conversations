@@ -70,8 +70,6 @@ def request_handling():
         elif not validation(username):
             return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
 
-    print(type(scenario))
-
     if scenario == 1:
         voice_model = "Annmarie Nele"
     elif scenario == 2:
@@ -337,7 +335,6 @@ def generate_feedback():
             
             clear_history(username)
 
-            print("Full response:", response_data["structured_feedback"])
             return jsonify(response_data)
 
         return jsonify({"error": "Empty feedback response"}), 500
