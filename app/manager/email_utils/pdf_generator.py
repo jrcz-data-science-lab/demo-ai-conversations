@@ -2,37 +2,39 @@ from fpdf import FPDF
 from pathlib import Path
 
 def create_feedback_pdf(data: dict, filepath: str, logo_path: str | None = None):
-    # Create PDF object
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
 
-    font_path = Path("/usr/src/app/email_utils/dejavu-sans/DejaVuSans.ttf")
+    regular_font_path = Path("/usr/src/app/email_utils/dejavu-sans/DejaVuSans.ttf")
+    bold_font_path = Path("/usr/src/app/email_utils/dejavu-sans/DejaVuSans-Bold.ttf")
 
-    # Check if the font file exists before proceeding
-    if not font_path.exists():
-        raise FileNotFoundError(f"Font file not found: {font_path}")
-
-    # Add only the regular font
-    pdf.add_font("dejavu-sans", style="", fname=str(font_path))
+    # Add font
+    pdf.add_font("dejavu-sans", style="", fname=str(regular_font_path))
+    pdf.add_font("dejavu-sans", style='B', fname=str(bold_font_path))
     
     # Set the font for the document content (regular style)
-    pdf.set_font("dejavu-sans", style="", size=11)  # Use regular font
+    pdf.set_font("dejavu-sans", style="", size=11)
 
+    # Add some title or header text if necessary
+    pdf.set_font("dejavu-sans", 'B', size=16)
+    pdf.cell(200, 10, txt="Feedback Document", ln=True, align="C")
+    pdf.ln(10)
+
+    # Add the content sections
     s = data["structured"]["sections"]
 
     def add_section(title, text):
-        # Set regular font for section titles and content
-        pdf.set_font("dejavu-sans", style="", size=12)  # Regular font for section titles
-        pdf.multi_cell(0, 8, title)
-        pdf.ln(1)
+        pdf.set_font("dejavu-sans", style='B', size=14)
+        pdf.multi_cell(0, 10, title)
+        pdf.ln(2)
         
-        # Use regular font for section content
-        pdf.set_font("dejavu-sans", style="", size=11)  # Regular font for content
-        pdf.multi_cell(0, 7, text)
-        pdf.ln(4)
+        # Set content font (regular style, normal size)
+        pdf.set_font("dejavu-sans", style="", size=11)
+        pdf.multi_cell(0, 8, text)
+        pdf.ln(6)
 
-    # Add all sections
+    # Add all sections with improved styling
     add_section("1. Samenvatting", s["summary"])
     add_section("2. Gespreksvaardigheden", s["gespreksvaardigheden"])
     add_section("3. Begripstoetsing", s["comprehension"])
