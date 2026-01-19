@@ -1,2 +1,3 @@
 requests
 Flask
+fpdf2>=2.7

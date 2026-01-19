@@ -7,7 +7,7 @@ from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
 from feedback_formatter import format_student_feedback, print_feedback_to_terminal
 from config import ENABLE_SPEECH_ANALYSIS
-from emailsender import send_email
+from email_utils.emailsender import send_email
 import os
 import time
 import logging
@@ -69,8 +69,6 @@ def request_handling():
             return jsonify({"error [/general]": "Email is required."}), 400
         elif not validation(username):
             return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
-
-    print(type(scenario))
 
     if scenario == 1:
         voice_model = "Annmarie Nele"
@@ -337,7 +335,6 @@ def generate_feedback():
             
             clear_history(username)
 
-            print("Full response:", response_data["structured_feedback"])
             return jsonify(response_data)
 
         return jsonify({"error": "Empty feedback response"}), 500
