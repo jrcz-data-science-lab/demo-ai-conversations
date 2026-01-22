@@ -3,7 +3,7 @@ import requests
 from db_utils import append_to_history, read_history, clear_history, store_audio_metadata, get_all_audio_metadata
 from sqlite import init_db
 from validation import validate_inputs
-from user_management import ensure_user, # validation
+from user_management import ensure_user
 from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
 from feedback_formatter import format_student_feedback, print_feedback_to_terminal
@@ -59,17 +59,6 @@ def request_handling():
     except (TypeError, ValueError):
         scenario = scenario_raw
     feedback_request = data.get("feedback", False)
-
-    # # Validate inputs before continuing
-    # if not audio_in or not scenario or not username or not validation(username):
-    #     if not audio_in:
-    #         return jsonify({"error [/general]": "No audio received."}), 400
-    #     elif not scenario:
-    #         return jsonify({"error [/general]": "No scenario specified"}), 400
-    #     elif not username:
-    #         return jsonify({"error [/general]": "Email is required."}), 400
-    #     elif not validation(username):
-    #         return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400
 
     # Validate inputs before continuing using the imported validation function
     validation_response = validate_inputs(username, scenario)
