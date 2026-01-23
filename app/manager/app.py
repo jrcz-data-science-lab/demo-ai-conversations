@@ -2,7 +2,8 @@ from flask import Flask, request, jsonify
 import requests
 from db_utils import append_to_history, read_history, clear_history, store_audio_metadata, get_all_audio_metadata
 from sqlite import init_db
-from user_management import ensure_user, validation
+from validation import validate_inputs
+from user_management import ensure_user
 from speech_analysis import generate_speech_feedback
 from gordon_patterns import generate_pattern_feedback
 from feedback_formatter import format_student_feedback, print_feedback_to_terminal
@@ -53,23 +54,24 @@ def request_handling():
     username = data.get("username")
     audio_in = data.get("audio")
     scenario_raw = data.get("scenario")
+    is_initial_request = data.get("is_initial_request", False)
+    feedback_request = data.get("feedback", False)
+
     try:
         scenario = int(scenario_raw)
     except (TypeError, ValueError):
         scenario = scenario_raw
-    feedback_request = data.get("feedback", False)
 
-    # Validate inputs before continuing
-    if not audio_in or not scenario or not username or not validation(username):
-        if not audio_in:
-            return jsonify({"error [/general]": "No audio received."}), 400
-        elif not scenario:
-            return jsonify({"error [/general]": "No scenario specified"}), 400
-        elif not username:
-            return jsonify({"error [/general]": "Email is required."}), 400
-        elif not validation(username):
-            return jsonify({"error [/general]": "Invalid email address. Must be a valid @hz.nl email containing letters and numbers."}), 400  
+    # Validate inputs before continuing using the imported validation function
+    validation_response = validate_inputs(username, scenario)
+    if not validation_response['validation']:
+        return jsonify(validation_response), 400
 
+    if is_initial_request:
+        print(f"[DEBUG] User: {username}, has selected: {scenario}")
+        return jsonify({"validation": True ,"message": "Verification successful"})
+    
+    # Set voice model based on the scenario
     if scenario == 1:
         voice_model = "Annmarie Nele"
     elif scenario == 2:
@@ -80,6 +82,17 @@ def request_handling():
         voice_model = "Filip Traverse"
     else:
         voice_model = "Damien Black"
+
+    # If this is a feedback request, skip audio processing as well
+    if feedback_request:
+        feedback_resp = requests.post(FEEDBACK_URL, json={
+            "username": username,
+            "scenario": scenario,
+            "voice": voice_model
+        })
+        feedback_json = feedback_resp.json()
+        # Return full feedback response including speech_metrics and icon_states
+        return jsonify(feedback_json)
 
     # Transcribe audio
     stt_resp = requests.post(STT_URL, json={"audio": audio_in})
@@ -98,27 +111,16 @@ def request_handling():
         except:
             audio_duration = 0
 
-    if not feedback_request:
-        generate_resp = requests.post(GENERATE_URL, json={
-            "username": username,
-            "transcript": transcription_text,
-            "scenario": scenario,
-            "voice": voice_model,
-            "transcript_details": transcript_details,
-            "audio_duration": audio_duration
-        })
-        audio_b64 = generate_resp.json().get("audio")
-        return jsonify({"audio": audio_b64})
-    else:
-        feedback_resp = requests.post(FEEDBACK_URL, json={
-            "username": username,
-            "scenario": scenario,
-            "voice": voice_model
-        })
-        feedback_json = feedback_resp.json()
-        # Return full feedback response including speech_metrics and icon_states
-        return jsonify(feedback_json)
-
+    generate_resp = requests.post(GENERATE_URL, json={
+        "username": username,
+        "transcript": transcription_text,
+        "scenario": scenario,
+        "voice": voice_model,
+        "transcript_details": transcript_details,
+        "audio_duration": audio_duration
+    })
+    audio_b64 = generate_resp.json().get("audio")
+    return jsonify({"audio": audio_b64})
 
 @app.route('/generate', methods=['POST'])
 def generate_response():
