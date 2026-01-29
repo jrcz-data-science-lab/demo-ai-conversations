@@ -21,6 +21,22 @@ def create_feedback_pdf(data: dict, filepath: str, logo_path: str | None = None)
     pdf.cell(200, 10, txt="Feedback Document", ln=True, align="C")
     pdf.ln(10)
 
+    # ===== Fixed text (Metrics) =====
+    pdf.set_font("dejavu-sans", size=11)
+    pdf.multi_cell(
+        0,
+        8,
+        "Spreeksnelheid (wpm): Het aantal gesproken woorden per minuut. Dit geeft aan hoe snel je spreekt.\n"
+        "Tempo-variatie (%): De mate waarin het spreektempo gedurende het gesprek wisselt.\n"
+        "Pauzedistributie: De verdeling van korte, middelgrote en lange stiltes tijdens het spreken.\n"
+        "Gemiddelde pauzeduur (s): De gemiddelde lengte van pauzes in het gesprek.\n"
+        "Opvulgeluidjes / fillers: Het gebruik van niet-inhoudelijke klanken zoals 'eh' of 'uh'.\n"
+        "Volume-stabiliteit: De mate waarin het stemvolume constant blijft tijdens het spreken.\n"
+        "Prosodie: De kwaliteit van intonatie, ritme en melodie van de stem.\n"
+        "Gevoelstoon: De waargenomen emotionele lading van de stem."
+    )
+    pdf.ln(10) 
+
     # Add the content sections
     s = data["structured"]["sections"]
 

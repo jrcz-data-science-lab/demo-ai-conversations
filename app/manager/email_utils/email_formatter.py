@@ -24,6 +24,7 @@ def write_email(data: dict) -> str:
 Let op:
 - Gebruik **geen Markdown-formatering** of speciale tekens zoals sterretjes (***), underscores (_), of andere symbolen die op opmaak wijzen. Dit is een gewone platte tekst-e-mail.
 - Zorg ervoor dat je duidelijk en beknopt bent, en vermijd het gebruik van de naam van de student of persoonlijke identificatiegegevens. Verwijs alleen naar de student als "de student."
+- Vermijd engelse termen gebruik alleen de nederlandse taal.
     """
 
     try:
