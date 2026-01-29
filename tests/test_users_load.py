@@ -8,11 +8,11 @@ import requests
 # --- Configuration ---
 SERVER_URL = "http://145.19.54.110:8000/general"
 RECORDINGS_DIR = "test_recordings"  # folder with your interaction*.wav files
-NUM_USERS = 8                       # number of simulated users
+NUM_USERS = 4                       # number of simulated users
 SCENARIO = 1                        # scenario number to send
-MIN_DELAY = 6                       # min delay between interactions (s)
-MAX_DELAY = 10                      # max delay between interactions (s)
-REQUEST_TIMEOUT = 500               # timeout for requests (s)
+MIN_DELAY = 10                       # min delay between interactions (s)
+MAX_DELAY = 15                      # max delay between interactions (s)
+REQUEST_TIMEOUT = 60               # timeout for requests (s)
 
 
 # --- Helper function to convert WAV file to base64 ---

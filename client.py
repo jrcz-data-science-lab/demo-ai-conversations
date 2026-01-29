@@ -70,49 +70,45 @@ def send_audio(username, audio_b64, scenario, feedback=False):
         "username": username,
         "audio": audio_b64,
         "feedback": feedback,
-        "scenario": scenario
+        "scenario": scenario,
+        "is_initial_request": False
     }
 
     try:
         response = requests.post(SERVER_URL, json=data, timeout=500)
-        response.raise_for_status()
 
-        content_type = response.headers.get("Content-Type", "")
-        if content_type.startswith("application/json"):
+        # Always try JSON first
+        if response.headers.get("Content-Type", "").startswith("application/json"):
             resp_json = response.json()
-            if "error" in resp_json or (resp_json.get("audio") and str(resp_json.get("audio")).lower() == "error"):
-                print("Server returned error:", resp_json)
-                return None
-        else:
-            resp_text = response.text.strip() if response.text else ""
-            if resp_text.lower() == "error":
-                print("Server returned error:", resp_text)
-                return None
-            resp_json = {"audio": resp_text}
 
-        audio_field = resp_json.get("audio")
-        if audio_field is None or str(audio_field).lower() == "error":
-            print("Server returned error:", resp_json)
+            # 🔴 New validation handling
+            if resp_json.get("validation") is False:
+                print("❌ Validation failed:", resp_json.get("errorMessage", "Unknown error"))
+                return None
+
+            # ✅ Normal audio response
+            audio_field = resp_json.get("audio")
+            if not audio_field:
+                print("⚠️ No audio field in response:", resp_json)
+                return None
+
+            return audio_field
+
+        else:
+            print("Unexpected response type:", response.text)
             return None
 
-        return audio_field
-
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         print("Error sending request:", e)
         return None
+
 
 def main():
     global is_recording, recording
 
     username = input("Enter your username: ").strip()
-    if not username:
-        print("Username is required!")
-        return
 
     scenario = input("Enter scenario number (e.g. 1, 2, 3...): ").strip()
-    if not scenario.isdigit():
-        print("Scenario must be a number.")
-        return
 
     print("\n=== Push-to-Talk Online Mode ===")
     print("Press ENTER to start recording, ENTER again to stop.")
@@ -171,7 +167,6 @@ def main():
             if response.headers.get("Content-Type", "").startswith("application/json"):
                 feedback_json = response.json()
                 audio_field = feedback_json.get("audio")
-                print(feedback_json)
                 
                 if audio_field:
                     print("=== Feedback Summary ===")
