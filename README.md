@@ -36,11 +36,21 @@ The system requirements may vary depending on the models being used. Below are t
    python client.py
    ```
 
-**Note:** The final build includes large models. If you prefer a lightweight setup, it's recommended to replace the models before running the Docker commands.
+**NOTE:** The final build includes large models. If you prefer a lightweight setup, it's recommended to replace the models before running the Docker commands.
 
 Once the backend is running locally, you can access it at `http://localhost:8000/general` this is the main entry point. If you are only working with the backend, you can use the `client.py` file to send requests to the backend.
 
-review my paragraph of my readme pls
+# Deployment Environment
+The current build is meant for server deployment. Therefore, the code is written to use larger models when running in this environment. All models are run locally and do not use any remote AI services.
+
+If you run the server in it's deployed environment you will need to call it from the frontend application or run the `client.py` script remotely.
+
+## Commands
+`sudo docker compose up` will start the server
+
+`sudo docker compose up --build `will build the application and the models
+
+`sudo docker compose down` will remove all containers. This is recommended if you are replacing the models. After running this command you need to rebuild the project before starting it again.
 
 ## Changing Models
 ### Speech-To-Text
